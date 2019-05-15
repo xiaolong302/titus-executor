@@ -2,15 +2,16 @@ package docker
 
 import (
 	"errors"
-	"fmt"
-
-	"github.com/Netflix/titus-executor/executor/runtime/docker/seccomp"
 	runtimeTypes "github.com/Netflix/titus-executor/executor/runtime/types"
 	"github.com/docker/docker/api/types/container"
 )
 
 const (
-	SYS_ADMIN = "SYS_ADMIN" // nolint: golint
+	SYS_ADMIN       = "SYS_ADMIN"       // nolint: golint
+	SYS_RESOURCE    = "SYS_RESOURCE"    // nolint: golint
+	DAC_READ_SEARCH = "DAC_READ_SEARCH" // nolint: golint
+	IPC_LOCK        = "IPC_LOCK"        // nolint: golint
+	ALL             = "ALL"             // nolint: golint
 )
 
 func addAdditionalCapabilities(c *runtimeTypes.Container, hostCfg *container.HostConfig) map[string]struct{} {
@@ -43,8 +44,8 @@ func setupAdditionalCapabilities(c *runtimeTypes.Container, hostCfg *container.H
 			hostCfg.CapAdd = append(hostCfg.CapAdd, SYS_ADMIN)
 		}
 	}
-	seccompProfile := "default.json"
-	apparmorProfile := "docker_titus"
+
+	hostCfg.CapAdd = append(hostCfg.CapAdd, ALL)
 
 	if fuseEnabled {
 		hostCfg.Resources.Devices = append(hostCfg.Resources.Devices, container.DeviceMapping{
@@ -52,9 +53,6 @@ func setupAdditionalCapabilities(c *runtimeTypes.Container, hostCfg *container.H
 			PathInContainer:   fuseDev,
 			CgroupPermissions: "rmw",
 		})
-		apparmorProfile = "docker_fuse"
-		seccompProfile = "fuse-container.json"
-
 	}
 
 	// We can do this here because nested containers can do everything fuse containers can
@@ -66,9 +64,6 @@ func setupAdditionalCapabilities(c *runtimeTypes.Container, hostCfg *container.H
 		// Tell Tini to exec systemd so it's pid 1
 		c.Env["TINI_HANDOFF"] = trueString
 	}
-
-	hostCfg.SecurityOpt = append(hostCfg.SecurityOpt, "apparmor:"+apparmorProfile)
-	hostCfg.SecurityOpt = append(hostCfg.SecurityOpt, fmt.Sprintf("seccomp=%s", string(seccomp.MustAsset(seccompProfile))))
 
 	return nil
 }

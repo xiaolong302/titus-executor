@@ -281,9 +281,6 @@ func setCgroupOwnership(parentCtx context.Context, c *runtimeTypes.Container, cr
 		}
 		// This is to handle the name=systemd cgroup, we should probably parse /proc/mounts, but this is a little bit easier
 		controllerType = strings.TrimPrefix(controllerType, "name=")
-		if controllerType != "systemd" {
-			continue
-		}
 
 		// systemd needs to be the owner of its systemd cgroup in order to start up
 		controllerPath := cgroupInfo[2]
