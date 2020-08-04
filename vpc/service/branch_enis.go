@@ -4,19 +4,14 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"golang.org/x/time/rate"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
-
-	"golang.org/x/time/rate"
-
 	"golang.org/x/sync/semaphore"
-
 	"github.com/Netflix/titus-executor/api/netflix/titus"
-
 	"github.com/Netflix/titus-executor/vpc/service/vpcerrors"
-
 	"github.com/Netflix/titus-executor/aws/aws-sdk-go/aws"
 	"github.com/Netflix/titus-executor/aws/aws-sdk-go/service/ec2"
 	"github.com/Netflix/titus-executor/logger"
@@ -1072,10 +1067,16 @@ func (actionWorker *actionWorker) loop(ctx context.Context, item keyedItem) erro
 	pingTimer := time.NewTimer(10 * time.Second)
 	pingCh := make(chan error)
 
+	/*
+	 * Let's wait for the person who actually initiated the action to do the action. Therefore we will always sleep
+	 * for 10 milliseconds prior to trying to "process" the work item. We also will not process more than 100
+	 * work items a second.
+	 */
 	wq := workqueue.NewNamedRateLimitingQueue(workqueue.NewMaxOfRateLimiter(
-		workqueue.NewItemExponentialFailureRateLimiter(100*time.Millisecond, time.Minute),
-		// 10 qps, 100 bucket size.  This is only for retry speed and its only the overall factor (not per item)
-		&workqueue.BucketRateLimiter{Limiter: rate.NewLimiter(rate.Limit(100), 200)},
+		workqueue.NewItemExponentialFailureRateLimiter(100*time.Millisecond, 10 * time.Second),
+		// 100 qps, 100 bucket size.  This is only for retry speed and its only the overall factor (not per item)
+		&workqueue.BucketRateLimiter{
+			Limiter: rate.NewLimiter(rate.Limit(100), 200)},
 	), actionWorker.name)
 	defer wq.ShutDown()
 
@@ -1102,6 +1103,7 @@ func (actionWorker *actionWorker) loop(ctx context.Context, item keyedItem) erro
 		case ev := <-pqListener.Notify:
 			// This is a reconnect event
 			if ev == nil {
+				logger.G(ctx).Info("Attempting to (re)connect to database")
 				err = actionWorker.retrieveAllWorkItems(ctx, wq)
 				if err != nil {
 					err = errors.Wrap(err, "Could not retrieve all work items after reconnecting to postgres")
@@ -1131,6 +1133,8 @@ func (actionWorker *actionWorker) loop(ctx context.Context, item keyedItem) erro
 			case pq.ListenerEventConnectionAttemptFailed:
 				// Maybe this should be case for the worker bailing?
 				logger.G(ctx).WithError(ev.err).Error("Failed to reconnect to postgres")
+			default:
+				logger.G(ctx).WithField("ev", ev).Warning("Received unexpected event")
 			}
 		}
 	}
@@ -1173,7 +1177,7 @@ func (actionWorker *actionWorker) worker(ctx context.Context, wq workqueue.RateL
 			err = errors.Wrap(err, "Cannot set lock timeout to 1000 milliseconds")
 			tracehelpers.SetStatus(err, span)
 			logger.G(ctx).WithError(err).Error()
-			return nil
+			return err
 		}
 
 		// Try to lock it for one second. It'll error out otherwise
@@ -1191,7 +1195,7 @@ func (actionWorker *actionWorker) worker(ctx context.Context, wq workqueue.RateL
 			err = errors.Wrap(err, "Cannot reset lock timeout to 0 (infinity)")
 			tracehelpers.SetStatus(err, span)
 			logger.G(ctx).WithError(err).Error()
-			return nil
+			return err
 		}
 
 		err = actionWorker.cb(ctx, tx, id)
@@ -1204,14 +1208,16 @@ func (actionWorker *actionWorker) worker(ctx context.Context, wq workqueue.RateL
 			tracehelpers.SetStatus(err, span)
 			logger.G(ctx).WithError(err).Error("Failed to process item")
 			wq.AddRateLimited(item)
-			return nil
+			return err
 		}
+		now := time.Now()
 		err = tx.Commit()
+		span.AddAttributes(trace.StringAttribute("commitTime", time.Since(now).String()))
 		if err != nil {
 			err = errors.Wrap(err, "Could not commit database transaction")
 			tracehelpers.SetStatus(err, span)
 			wq.AddRateLimited(item)
-			return nil
+			return err
 		}
 
 		wq.Forget(item)
