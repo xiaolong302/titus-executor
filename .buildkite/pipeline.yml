@@ -8,6 +8,7 @@ steps:
     branches:
       - master
       - multi-account
+      - hotfix-20201106
     build:
       env:
         CALLER_BUILD_ID: "${BUILDKITE_BUILD_ID}"
