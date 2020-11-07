@@ -70,10 +70,9 @@ type MetadataServer struct {
 	xForwardedForBlockingMode bool
 	ec2metadatasvc            *ec2metadata.EC2Metadata
 	// Dynamically resolved
-	sf                 singleflight.Group
-	availabilityZone   string
-	availabilityZoneID string
-	region             string
+	sf                          singleflight.Group
+	availabilityZoneID          string
+	ec2InstanceIdentityDocument *ec2metadata.EC2InstanceIdentityDocument
 }
 
 func dumpRoutes(r *mux.Router) {
@@ -260,13 +259,13 @@ func (ms *MetadataServer) placementAZ(w http.ResponseWriter, r *http.Request) {
 	metrics.PublishIncrementCounter("handler.placementAZ.count")
 
 	ctx := r.Context()
-	az, err := ms.getAvailabilityZone(ctx)
+	instanceIID, err := ms.getBackingInstanceIdentityDocument(ctx)
 	if err != nil {
 		logger.G(ctx).WithError(err).Error("Could not get AZ")
 		http.Error(w, err.Error(), http.StatusServiceUnavailable)
 		return
 	}
-	if _, err := fmt.Fprint(w, az); err != nil {
+	if _, err := fmt.Fprint(w, instanceIID.AvailabilityZone); err != nil {
 		log.Error("Unable to write output: ", err)
 	}
 }
@@ -290,53 +289,15 @@ func (ms *MetadataServer) placementRegion(w http.ResponseWriter, r *http.Request
 	metrics.PublishIncrementCounter("handler.placementRegion.count")
 
 	ctx := r.Context()
-	region, err := ms.getRegion(ctx)
+	instanceIID, err := ms.getBackingInstanceIdentityDocument(ctx)
 	if err != nil {
 		logger.G(ctx).WithError(err).Error("Could not get region")
 		http.Error(w, err.Error(), http.StatusServiceUnavailable)
 		return
 	}
-	if _, err := fmt.Fprint(w, region); err != nil {
+	if _, err := fmt.Fprint(w, instanceIID.Region); err != nil {
 		log.Error("Unable to write output: ", err)
 	}
-}
-
-func (ms *MetadataServer) getRegion(ctx context.Context) (string, error) {
-	val, err, _ := ms.sf.Do("region", func() (interface{}, error) {
-		if ms.region != "" {
-			return ms.region, nil
-		}
-		region, err := ms.ec2metadatasvc.GetMetadataWithContext(ctx, "placement/region")
-		if err == nil {
-			ms.region = region
-		}
-		return region, err
-	})
-
-	if err != nil {
-		return "", fmt.Errorf("Could not fetch current region from upstream IMDS: %w", err)
-	}
-
-	return val.(string), nil
-}
-
-func (ms *MetadataServer) getAvailabilityZone(ctx context.Context) (string, error) {
-	val, err, _ := ms.sf.Do("availability-zone", func() (interface{}, error) {
-		if ms.availabilityZone != "" {
-			return ms.availabilityZone, nil
-		}
-		availabilityZone, err := ms.ec2metadatasvc.GetMetadataWithContext(ctx, "placement/availability-zone")
-		if err == nil {
-			ms.availabilityZone = availabilityZone
-		}
-		return availabilityZone, err
-	})
-
-	if err != nil {
-		return "", fmt.Errorf("Could not fetch current availability-zone from upstream IMDS: %w", err)
-	}
-
-	return val.(string), nil
 }
 
 func (ms *MetadataServer) getAvailabilityZoneID(ctx context.Context) (string, error) {
@@ -358,16 +319,31 @@ func (ms *MetadataServer) getAvailabilityZoneID(ctx context.Context) (string, er
 	return val.(string), nil
 }
 
+func (ms *MetadataServer) getBackingInstanceIdentityDocument(ctx context.Context) (*ec2metadata.EC2InstanceIdentityDocument, error) {
+	val, err, _ := ms.sf.Do("instance-identity-document", func() (interface{}, error) {
+		if ms.ec2InstanceIdentityDocument != nil {
+			return ms.ec2InstanceIdentityDocument, nil
+		}
+
+		ec2InstanceIdentityDocument, err := ms.ec2metadatasvc.GetInstanceIdentityDocumentWithContext(ctx)
+		if err == nil {
+			ms.ec2InstanceIdentityDocument = &ec2InstanceIdentityDocument
+		}
+
+		return &ec2InstanceIdentityDocument, err
+	})
+
+	if err != nil {
+		return nil, fmt.Errorf("Could not fetch backing instance identity document: %w", err)
+	}
+
+	return val.(*ec2metadata.EC2InstanceIdentityDocument), nil
+}
+
 func (ms *MetadataServer) instanceIdentityDocument(w http.ResponseWriter, r *http.Request) {
 	metrics.PublishIncrementCounter("handler.instanceIdentityDocument.count")
 	ctx := r.Context()
-	region, err := ms.getRegion(ctx)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusServiceUnavailable)
-		return
-	}
-
-	az, err := ms.getAvailabilityZone(ctx)
+	instanceIID, err := ms.getBackingInstanceIdentityDocument(ctx)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusServiceUnavailable)
 		return
@@ -376,10 +352,10 @@ func (ms *MetadataServer) instanceIdentityDocument(w http.ResponseWriter, r *htt
 	iid := map[string]interface{}{
 		"devpayProductCodes":      nil,
 		"marketplaceProductCodes": nil,
-		"availabilityZone":        az,
+		"availabilityZone":        instanceIID.AvailabilityZone,
 		"privateIp":               ms.ipv4Address.String(),
 		"version":                 "2017-09-30",
-		"region":                  region,
+		"region":                  instanceIID.Region,
 		"instanceId":              ms.titusTaskInstanceID,
 		"billingProducts":         nil,
 		// This is a good question as to what we should put here

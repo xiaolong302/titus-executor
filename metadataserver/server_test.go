@@ -226,6 +226,32 @@ func setupStubServer(t *testing.T) (*stubServer, error) {
 	stubServerInstance.router.HandleFunc("/latest/api/token", func(writer http.ResponseWriter, request *http.Request) {
 		_, _ = writer.Write([]byte("faketoken"))
 	})
+	stubServerInstance.router.HandleFunc("/latest/dynamic/instance-identity/document", func(writer http.ResponseWriter, request *http.Request) {
+		fakeIID := ec2metadata.EC2InstanceIdentityDocument{
+			DevpayProductCodes:      nil,
+			MarketplaceProductCodes: nil,
+			AvailabilityZone:        "us-east-1a",
+			PrivateIP:               "",
+			Version:                 "",
+			Region:                  "us-east-1",
+			InstanceID:              "",
+			BillingProducts:         nil,
+			InstanceType:            "",
+			AccountID:               "",
+			PendingTime:             time.Time{},
+			ImageID:                 "",
+			KernelID:                "",
+			RamdiskID:               "",
+			Architecture:            "",
+		}
+		writer.Header().Set("Content-type", "application/json")
+		enc := json.NewEncoder(writer)
+		enc.SetIndent("", "  ")
+		err := enc.Encode(fakeIID)
+		if err != nil {
+			panic(err)
+		}
+	})
 	stubServerInstance.router.PathPrefix("/").HandlerFunc(stubServerInstance.serveHTTP)
 
 	listener, err := net.Listen("tcp", "0.0.0.0:0") // nolint:gosec
@@ -574,11 +600,12 @@ func TestVCR(t *testing.T) {
 		[]vcrTape{
 			{makeGetRequest(ss, "/latest/ping"), validateRequestNotProxiedAndSuccess},
 			{makeGetRequest(ss, "/nonExistentEndpoint"), validateRequestNotProxiedAndNotFound},
+			// Order matters. Fetching the instance identity document will cache the metadata used to generate placement/availability-zone, and placement/region
 			{makeGetRequest(ss, "/latest/dynamic/instance-identity"), validateRequestProxiedAndSuccess},
 			{makeGetRequest(ss, "/latest/user-data"), validateRequestProxiedAndSuccess},
 			{makeGetRequest(ss, "/latest/not-allowed-end-point"), validateRequestNotProxiedAndForbidden},
-			{makeGetRequest(ss, "/latest/meta-data/placement/availability-zone"), validateRequestProxiedAndSuccess},
-			{makeGetRequest(ss, "/latest/meta-data/placement/region"), validateRequestProxiedAndSuccess},
+			{makeGetRequest(ss, "/latest/meta-data/placement/availability-zone"), validateRequestNotProxiedAndSuccessWithContent("us-east-1a")},
+			{makeGetRequest(ss, "/latest/meta-data/placement/region"), validateRequestNotProxiedAndSuccessWithContent("us-east-1")},
 			{makeGetRequest(ss, "/latest/dynamic/instance-identity/signature"), validateRequestNotProxiedAndForbidden},
 			{makeGetRequest(ss, "//latest/dynamic/instance-identity/signature"), validateRequestNotProxiedAndForbidden},
 			{makeGetRequest(ss, "/latest//dynamic/instance-identity/signature"), validateRequestNotProxiedAndForbidden},
