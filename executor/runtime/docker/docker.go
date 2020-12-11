@@ -1087,10 +1087,10 @@ func (r *DockerRuntime) createTitusEnvironmentFile(c runtimeTypes.Container) err
 	})
 
 	/* writeTitusEnvironmentFile closes the file for us */
-	return writeTitusEnvironmentFile(c.Env(), f)
+	return WriteTitusEnvironmentFile(c.Env(), f)
 }
 
-func writeTitusEnvironmentFile(env map[string]string, w io.Writer) error {
+func WriteTitusEnvironmentFile(env map[string]string, w io.Writer) error {
 	writer := bufio.NewWriter(w)
 	for key, val := range env {
 		if len(key) == 0 {
@@ -1115,9 +1115,8 @@ func (r *DockerRuntime) logDir(c runtimeTypes.Container) string {
 func (r *DockerRuntime) pushEnvironment(c runtimeTypes.Container, imageInfo *types.ImageInspect) error { // nolint: gocyclo
 	var envTemplateBuf, tarBuf bytes.Buffer
 
-	//myImageInfo.Config.Env
-
-	if err := executeEnvFileTemplate(c.Env(), imageInfo, &envTemplateBuf); err != nil {
+	imageInfoEnv := imageInfo.Config.Env
+	if err := ExecuteEnvFileTemplate(c.Env(), imageInfoEnv, &envTemplateBuf); err != nil {
 		return err
 	}
 
@@ -1149,7 +1148,7 @@ func (r *DockerRuntime) pushEnvironment(c runtimeTypes.Container, imageInfo *typ
 	}
 
 	if r.cfg.ContainerSSHD {
-		if err := addContainerSSHDConfig(c, tw, r.cfg); err != nil {
+		if err := AddContainerSSHDConfig(c.TaskID(), c.AppName(), *c.IamRole(), tw, r.cfg); err != nil {
 			return err
 		}
 	}

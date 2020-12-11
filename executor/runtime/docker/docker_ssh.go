@@ -7,9 +7,9 @@ import (
 	"strings"
 
 	"github.com/Netflix/titus-executor/config"
-	runtimeTypes "github.com/Netflix/titus-executor/executor/runtime/types"
 	"github.com/aws/aws-sdk-go/aws/arn"
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 )
 
 const sshdConfig = `
@@ -89,13 +89,12 @@ Subsystem sftp /titus/sshd/usr/lib64/misc/sftp-server
 PidFile /run/sshd.pid
 `
 
-func addContainerSSHDConfig(c runtimeTypes.Container, tw *tar.Writer, cfg config.Config) error {
-	iamProfileARN := c.IamRole()
-	if iamProfileARN == nil {
+func AddContainerSSHDConfig(taskID string, appName string, iamProfileARN string, tw *tar.Writer, cfg config.Config) error {
+	if iamProfileARN == "" {
 		return errors.New("Could not get IAM role from container")
 	}
 
-	iamProfile, err := arn.Parse(*iamProfileARN)
+	iamProfile, err := arn.Parse(iamProfileARN)
 	if err != nil {
 		return err
 	}
@@ -104,13 +103,14 @@ func addContainerSSHDConfig(c runtimeTypes.Container, tw *tar.Writer, cfg config
 	if err != nil {
 		return err
 	}
-	return addContainerSSHDConfigWithData(c, tw, cfg, caData, iamProfile.AccountID, cfg.SSHAccountID)
+	logrus.Info("Going to make sshdconfig with data")
+	return addContainerSSHDConfigWithData(taskID, appName, tw, cfg, caData, iamProfile.AccountID)
 }
 
-func addContainerSSHDConfigWithData(c runtimeTypes.Container, tw *tar.Writer, cfg config.Config, caData []byte, accountIDs ...string) error {
+func addContainerSSHDConfigWithData(taskID string, appName string, tw *tar.Writer, cfg config.Config, caData []byte, accountIDs ...string) error {
 	sshConfigBytes := []byte(sshdConfig)
 	err := tw.WriteHeader(&tar.Header{
-		Name: "/titus/etc/ssh/sshd_config",
+		Name: "titus/etc/ssh/sshd_config",
 		Mode: 0644,
 		Size: int64(len(sshConfigBytes)),
 	})
@@ -123,7 +123,7 @@ func addContainerSSHDConfigWithData(c runtimeTypes.Container, tw *tar.Writer, cf
 	}
 
 	err = tw.WriteHeader(&tar.Header{
-		Name: "/titus/etc/ssh/trusted_user_ca_keys.pub",
+		Name: "titus/etc/ssh/trusted_user_ca_keys.pub",
 		Mode: 0644,
 		Size: int64(len(caData)),
 	})
@@ -138,22 +138,22 @@ func addContainerSSHDConfigWithData(c runtimeTypes.Container, tw *tar.Writer, cf
 	// The format that is used for SSH Users is:
 	// $(unix username):$(app name):$(aws account id):$(task id)
 
-	users := append(cfg.ContainerSSHDUsers, c.AppName())
+	users := append(cfg.ContainerSSHDUsers, appName)
 	for _, username := range users {
 		lines := []string{}
 		for _, accountID := range accountIDs {
 			lines = append(
 				lines,
-				fmt.Sprintf("%s:%s:%s:%s", username, c.AppName(), accountID, c.TaskID()), // key scoped to username, appname, account ID, and task ID
-				fmt.Sprintf("%s:%s:%s", c.AppName(), accountID, c.TaskID()),              // key has access to any username for this given app in this given account, with this task ID
-				fmt.Sprintf("%s:%s", c.AppName(), accountID),                             // key has access to any username for this given app in this given account
-				c.TaskID(), // key has access to any username on this task ID
-				fmt.Sprintf("%s:%s", username, c.TaskID()), // key has access to this given username on this task ID
+				fmt.Sprintf("%s:%s:%s:%s", username, appName, accountID, taskID), // key scoped to username, appname, account ID, and task ID
+				fmt.Sprintf("%s:%s:%s", appName, accountID, taskID),              // key has access to any username for this given app in this given account, with this task ID
+				fmt.Sprintf("%s:%s", appName, accountID),                         // key has access to any username for this given app in this given account
+				taskID,                                                           // key has access to any username on this task ID
+				fmt.Sprintf("%s:%s", username, taskID),                           // key has access to this given username on this task ID
 			)
 		}
 		line := []byte(strings.Join(lines, "\n"))
 		err = tw.WriteHeader(&tar.Header{
-			Name: fmt.Sprintf("/titus/etc/ssh/authorized_principals_%s", username),
+			Name: fmt.Sprintf("titus/etc/ssh/authorized_principals_%s", username),
 			Mode: 0644,
 			Size: int64(len(line)),
 		})

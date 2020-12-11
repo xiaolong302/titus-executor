@@ -6,7 +6,6 @@ import (
 	"strings"
 	"text/template"
 
-	"github.com/docker/docker/api/types"
 	"github.com/sirupsen/logrus"
 	"gopkg.in/alessio/shellescape.v1"
 )
@@ -42,10 +41,10 @@ type envFileTemplateData struct {
 	ImageEnv     map[string]string
 }
 
-func executeEnvFileTemplate(env map[string]string, imageInfo *types.ImageInspect, buf io.Writer) error {
-	imageEnv := make(map[string]string, len(imageInfo.Config.Env))
+func ExecuteEnvFileTemplate(env map[string]string, imageInfoEnv []string, buf io.Writer) error {
+	imageEnv := make(map[string]string, len(imageInfoEnv))
 
-	for _, environmentVariable := range imageInfo.Config.Env {
+	for _, environmentVariable := range imageInfoEnv {
 		splitEnvironmentVariable := strings.SplitN(environmentVariable, "=", 2)
 		if len(splitEnvironmentVariable) != 2 {
 			logrus.WithField("environmentVariable", environmentVariable).Warning("Cannot parse environment variable")
