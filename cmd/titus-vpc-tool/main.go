@@ -156,7 +156,7 @@ func main() {
 	if err := v.BindEnv(zipkinURLFlagName, "VPC_STATSD_ADDR"); err != nil {
 		panic(err)
 	}
-	if err := v.BindEnv(zipkinURLFlagName, "VPC_ZIPKIN"); err != nil {
+	if err := v.BindEnv(zipkinURLFlagName, "VPC_ZIPKIN", "ZIPKIN"); err != nil {
 		panic(err)
 	}
 	if err := v.BindEnv(stateDirFlagName, "VPC_STATE_DIR"); err != nil {
