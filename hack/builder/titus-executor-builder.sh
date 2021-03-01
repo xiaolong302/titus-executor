@@ -17,6 +17,7 @@ mv mount/titus-mount-block-device build/bin/linux-amd64/
 
 # tini
 (
+    rm -rf build/tini
     mkdir -p build/tini
     cd build/tini
     # TODO(sargun): RELWITHDEBINFO

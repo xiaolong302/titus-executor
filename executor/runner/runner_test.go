@@ -12,6 +12,7 @@ import (
 	"github.com/Netflix/titus-executor/config"
 	titusdriver "github.com/Netflix/titus-executor/executor/drivers"
 	runtimeTypes "github.com/Netflix/titus-executor/executor/runtime/types"
+	docker "github.com/docker/docker/client"
 	"github.com/gogo/protobuf/proto"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
@@ -46,9 +47,10 @@ type runtimeMock struct {
 
 	statusChan chan runtimeTypes.StatusMessage
 
-	prepareCallback func(context.Context) error
-	cleanupCallback func(c runtimeTypes.Container) error
-	killCallback    func(c runtimeTypes.Container) error
+	prepareCallback   func(context.Context) error
+	cleanupCallback   func(c runtimeTypes.Container) error
+	killCallback      func(c runtimeTypes.Container) error
+	getClientCallback func(c runtimeTypes.Container) error
 }
 
 func (r *runtimeMock) Prepare(ctx context.Context) error {
@@ -107,6 +109,10 @@ func (r *runtimeMock) Kill(ctx context.Context) error {
 
 		return errors.New("runtimeMock.Kill canceled")
 	}
+	return nil
+}
+
+func (r *runtimeMock) GetClient(ctx context.Context) *docker.Client {
 	return nil
 }
 

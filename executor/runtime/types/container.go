@@ -205,9 +205,9 @@ func NewContainerWithPod(taskID string, titusInfo *titus.ContainerInfo, resource
 	}
 
 	if pod != nil {
-		if l := len(pod.Spec.Containers); l != 1 {
-			return nil, fmt.Errorf("Pod has unexpected number of containers (not 1): %d", l)
-		}
+		// if l := len(pod.Spec.Containers); l != 1 {
+		// 	return nil, fmt.Errorf("Pod has unexpected number of containers (not 1): %d", l)
+		// }
 		c.pod = pod.DeepCopy()
 	}
 
@@ -229,16 +229,16 @@ func NewContainerWithPod(taskID string, titusInfo *titus.ContainerInfo, resource
 		return nil, err
 	}
 
-	entrypoint, command, err := parseEntryPointAndCommand(titusInfo)
-	if err != nil {
-		return nil, err
-	}
-	if entrypoint != nil {
-		c.entrypoint = entrypoint
-	}
-	if command != nil {
-		c.command = command
-	}
+	// entrypoint, command, err := parseEntryPointAndCommand(titusInfo)
+	// if err != nil {
+	// 	return nil, err
+	// }
+	// if entrypoint != nil {
+	// 	c.entrypoint = entrypoint
+	// }
+	// if command != nil {
+	// 	c.command = command
+	// }
 
 	stringPassthroughs := []struct {
 		paramName     string
@@ -730,6 +730,10 @@ func (c *TitusInfoContainer) ImageDigest() *string {
 }
 
 func (c *TitusInfoContainer) ImageName() *string {
+	i := c.pod.Spec.Containers[0].Image
+	if i != "" {
+		return &i
+	}
 	return strPtrOr(c.titusInfo.GetImageName(), nil)
 }
 

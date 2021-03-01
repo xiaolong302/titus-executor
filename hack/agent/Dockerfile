@@ -71,5 +71,7 @@ RUN dpkg -i /var/cache/apt/archives/titus-executor_latest.deb
 # test the metadata server's task identity endpoint:
 COPY hack/agent/certs/* /metatron/certificates/
 
+COPY /hack/agent/titus-standalone.conf /etc/systemd/system/titus-standalone
+
 # Workaround for docker/docker#27202, technique based on comments from docker/docker#9212
 CMD ["/bin/bash", "-c", "exec /sbin/init --log-target=journal 3>&1"]

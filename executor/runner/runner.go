@@ -3,6 +3,8 @@ package runner
 import (
 	"context"
 	"fmt"
+	"os"
+	"os/exec"
 	"sync"
 	"time"
 
@@ -37,6 +39,7 @@ type Runner struct {
 	metricsTagger tagger // the presence of tagger indicates extra Atlas tag is enabled
 	runtime       runtimeTypes.Runtime
 	config        config.Config
+	pod           *corev1.Pod
 
 	container runtimeTypes.Container
 	watcher   *filesystems.Watcher
@@ -74,6 +77,7 @@ func StartTaskWithRuntime(ctx context.Context, task Task, m metrics.Reporter, rp
 		UpdatesChan:   make(chan Update, 10),
 		StoppedChan:   make(chan struct{}),
 		container:     container,
+		pod:           task.Pod,
 	}
 
 	rt, err := rp(ctx, runner.container, startTime)
@@ -215,6 +219,39 @@ func (r *Runner) runContainer(ctx context.Context, startTime time.Time, updateCh
 		logger.G(ctx).Fatal("Unable to fetch Task details")
 	}
 	r.metrics.Counter("titus.executor.taskLaunched", 1, nil)
+	logger.G(ctx).Warn("Starting User-Defined SIDECARS")
+	for i, c := range r.pod.Spec.Containers {
+		if i == 0 {
+			continue
+		}
+		cmd := exec.Command("docker")
+		cmd.Args = []string{
+			"docker",
+			"run", "--rm",
+			"-d",
+			"--name", c.Name,
+			"-e", c.Env[0].Name + "=" + c.Env[0].Value,
+			"--net", "container:843863f1-41a2-4a73-89bc-89c506bc1e14",
+			"--ipc", "container:843863f1-41a2-4a73-89bc-89c506bc1e14",
+			"--pid", "container:843863f1-41a2-4a73-89bc-89c506bc1e14",
+			"--volumes-from", "843863f1-41a2-4a73-89bc-89c506bc1e14",
+			c.Image,
+		}
+		cmd.Args = append(cmd.Args, c.Command...)
+		logger.G(ctx).Warn("Running USER SIDECAR %+v", cmd.Args)
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		err := cmd.Run()
+		if err != nil {
+			logger.G(ctx).Warn("Error launching %s: %s", c.Name, err)
+			os.Exit(1)
+		}
+		if cmd.ProcessState.ExitCode() != 0 {
+			logger.G(ctx).Warn("Error launching %s: exit %d", c.Name, cmd.ProcessState.ExitCode())
+			os.Exit(1)
+		}
+
+	}
 
 	r.monitorContainer(ctx, startTime, statusChan, updateChan, details)
 }

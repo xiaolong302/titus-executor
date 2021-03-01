@@ -12,6 +12,7 @@ import (
 	"github.com/Netflix/titus-executor/config"
 	"github.com/Netflix/titus-executor/uploader"
 	vpcTypes "github.com/Netflix/titus-executor/vpc/types"
+	docker "github.com/docker/docker/client"
 	"google.golang.org/protobuf/proto"
 
 	// The purpose of this is to tell gometalinter to keep vendoring this package
@@ -354,6 +355,7 @@ type Runtime interface {
 	// Cleanup can be called to tear down resources after a container has been Killed or has naturally
 	// stopped. Must always be called.
 	Cleanup(ctx context.Context) error
+	GetClient(ctx context.Context) *docker.Client
 }
 
 // Status represent a containers state
