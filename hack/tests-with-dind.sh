@@ -58,7 +58,7 @@ docker run --privileged --security-opt seccomp=unconfined -v /sys/fs/cgroup:/sys
 log "Copying test metatron certs to their correct location"
 docker exec "$titus_agent_name" /metatron/certificates/setup-metatron-certs.sh
 
-log "Running integration tests against the $titus_agent_name daemon"
+log "Running titus-standalone in the $titus_agent_name container"
 # --privileged is needed here since we are reading FDs from a unix socket
 docker exec --privileged -e DEBUG=${debug} -e SHORT_CIRCUIT_QUITELITE=true -e GOPATH=${GOPATH} "$titus_agent_name" \
   go test -timeout ${TEST_TIMEOUT:-15m} ${TEST_FLAGS:-} \

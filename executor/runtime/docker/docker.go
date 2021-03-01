@@ -346,8 +346,10 @@ func (r *DockerRuntime) dockerConfig(c runtimeTypes.Container, binds []string, i
 		return nil, nil, err
 	}
 
+	i := c.ImageName()
 	containerCfg := &container.Config{
-		Image:      c.QualifiedImageName(),
+		Image: *i,
+		//		Image:      c.QualifiedImageName(),
 		Entrypoint: entrypoint,
 		Cmd:        cmd,
 		Labels:     c.Labels(),
@@ -475,9 +477,10 @@ func (r *DockerRuntime) dockerConfig(c runtimeTypes.Container, binds []string, i
 
 func (r *DockerRuntime) setupLogs(c runtimeTypes.Container, hostCfg *container.HostConfig) {
 	// TODO(fabio): move this to a daemon-level config
-	hostCfg.LogConfig = container.LogConfig{
-		Type: "journald",
-	}
+	// TODO(kylea): yes ^
+	// hostCfg.LogConfig = container.LogConfig{
+	// 	Type: "journald",
+	// }
 
 	t := true
 	hostCfg.Init = &t
@@ -883,6 +886,10 @@ func (r *DockerRuntime) createVolumeContainer(ctx context.Context, containerName
 			return multierror.Append(err, tmpErr, ctx.Err())
 		}
 	}
+}
+
+func (r *DockerRuntime) GetClient(parentCtx context.Context) *docker.Client {
+	return r.client
 }
 
 // Prepare host state (pull image, create fs, create container, etc...) for the container
