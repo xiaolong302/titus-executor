@@ -1069,7 +1069,10 @@ func (r *DockerRuntime) Prepare(parentCtx context.Context) error { // nolint: go
 	}
 
 	bindMounts = append(bindMounts, getLXCFsBindMounts()...)
-	bindMounts = append(bindMounts, getContainerToolsBindMounts()...)
+	if r.c.SeccompAgentEnabledForPerfSyscalls() {
+		bindMounts = append(bindMounts, getContainerToolsBindMounts()...)
+		bindMounts = append(bindMounts, getKernelBindMounts()...)
+	}
 
 	dockerCfg, hostCfg, err = r.dockerConfig(r.c, bindMounts, size, volumeContainers)
 	if err != nil {
@@ -1156,6 +1159,32 @@ func (r *DockerRuntime) createTitusEnvironmentFile(c runtimeTypes.Container) err
 
 	/* writeTitusEnvironmentFile closes the file for us */
 	return writeTitusEnvironmentFile(c.Env(), f)
+}
+
+func getUnameR() (string, error) {
+	var uts unix.Utsname
+	err := unix.Uname(&uts)
+	if err != nil {
+		return "", err
+	}
+	// Calling the syscall gives us a very raw null-terminated
+	// byte array. We need to find the null and only slice up
+	// that part
+	n := bytes.IndexByte(uts.Release[:], 0)
+	return string(uts.Release[:n]), nil
+}
+
+func getKernelBindMounts() []string {
+	mounts := []string{
+		"/boot:/boot:ro",
+		"/lib/modules:/lib/modules:ro",
+	}
+	unameR, err := getUnameR()
+	if err == nil {
+		kernelHeaders := fmt.Sprintf("/usr/src/linux-headers-%s:/usr/src/linux-headers-%s:ro", unameR, unameR)
+		mounts = append(mounts, kernelHeaders)
+	}
+	return mounts
 }
 
 func writeTitusEnvironmentFile(env map[string]string, w io.Writer) error {
