@@ -304,7 +304,7 @@ func StartJob(t *testing.T, ctx context.Context, jobInput *JobInput) (*JobRunRes
 	}
 
 	ctx = logger.WithField(ctx, "jobID", jobID)
-	// TODO: refactor this all to use NewContainer()
+	// TODO: refactor this all to use NewContainerWithPod()
 	// Strip out characters that aren't allowed in container names, and shorten
 	// the name so that it only includes the name of the test
 	validContainerNameRE := regexp.MustCompile("[^a-zA-Z0-9_.-]")

@@ -171,12 +171,7 @@ type TitusInfoContainer struct {
 	config config.Config
 }
 
-// NewContainer allocates and initializes a new container struct object
-func NewContainer(taskID string, titusInfo *titus.ContainerInfo, resources Resources, cfg config.Config) (Container, error) {
-	return NewContainerWithPod(taskID, titusInfo, resources, cfg, nil)
-}
-
-// NewContainerWithPod allocates and initializes a new container struct object. Pod can be optionally passed. If nil, ignored
+// NewContainerWithPod allocates and initializes a new container struct object, including the k8s Pod object
 func NewContainerWithPod(taskID string, titusInfo *titus.ContainerInfo, resources Resources, cfg config.Config, pod *corev1.Pod) (*TitusInfoContainer, error) {
 	networkCfgParams := titusInfo.GetNetworkConfigInfo()
 

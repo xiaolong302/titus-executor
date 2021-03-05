@@ -11,17 +11,18 @@ import (
 	protobuf "github.com/golang/protobuf/proto" // nolint: staticcheck
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	v1 "k8s.io/api/core/v1"
 )
 
 func TestImageNameWithTag(t *testing.T) {
-	taskID, titusInfo, resources, conf, err := ContainerTestArgs()
+	taskID, titusInfo, resources, conf, pod, err := ContainerTestArgs()
 	assert.NoError(t, err)
 
 	expected := "docker.io/titusoss/alpine:latest"
 	titusInfo.ImageName = protobuf.String("titusoss/alpine")
 	titusInfo.Version = protobuf.String("latest")
 
-	c, err := NewContainer(taskID, titusInfo, *resources, *conf)
+	c, err := NewContainerWithPod(taskID, titusInfo, *resources, *conf, pod)
 	assert.NoError(t, err)
 	if got := c.QualifiedImageName(); got != expected {
 		t.Fatalf("Expected %s, got %s", expected, got)
@@ -29,13 +30,13 @@ func TestImageNameWithTag(t *testing.T) {
 }
 
 func TestImageTagLatestByDefault(t *testing.T) {
-	taskID, titusInfo, resources, conf, err := ContainerTestArgs()
+	taskID, titusInfo, resources, conf, pod, err := ContainerTestArgs()
 	assert.NoError(t, err)
 
 	expected := "docker.io/titusoss/alpine:latest"
 	titusInfo.ImageName = protobuf.String("titusoss/alpine")
 
-	c, err := NewContainer(taskID, titusInfo, *resources, *conf)
+	c, err := NewContainerWithPod(taskID, titusInfo, *resources, *conf, pod)
 	assert.NoError(t, err)
 	if got := c.QualifiedImageName(); got != expected {
 		t.Fatalf("Expected %s, got %s", expected, got)
@@ -43,7 +44,7 @@ func TestImageTagLatestByDefault(t *testing.T) {
 }
 
 func TestImageByDigest(t *testing.T) {
-	taskID, titusInfo, resources, conf, err := ContainerTestArgs()
+	taskID, titusInfo, resources, conf, pod, err := ContainerTestArgs()
 	assert.NoError(t, err)
 
 	expected := "docker.io/" +
@@ -51,7 +52,7 @@ func TestImageByDigest(t *testing.T) {
 	titusInfo.ImageName = protobuf.String("titusoss/alpine")
 	titusInfo.ImageDigest = protobuf.String("sha256:58e1a1bb75db1b5a24a462dd5e2915277ea06438c3f105138f97eb53149673c4")
 
-	c, err := NewContainer(taskID, titusInfo, *resources, *conf)
+	c, err := NewContainerWithPod(taskID, titusInfo, *resources, *conf, pod)
 	assert.NoError(t, err)
 	if got := c.QualifiedImageName(); got != expected {
 		t.Fatalf("Expected %s, got %s", expected, got)
@@ -59,7 +60,7 @@ func TestImageByDigest(t *testing.T) {
 }
 
 func TestImageByDigestIgnoresTag(t *testing.T) {
-	taskID, titusInfo, resources, conf, err := ContainerTestArgs()
+	taskID, titusInfo, resources, conf, pod, err := ContainerTestArgs()
 	assert.NoError(t, err)
 
 	expected := "docker.io/" +
@@ -68,14 +69,14 @@ func TestImageByDigestIgnoresTag(t *testing.T) {
 	titusInfo.Version = protobuf.String("latest")
 	titusInfo.ImageDigest = protobuf.String("sha256:58e1a1bb75db1b5a24a462dd5e2915277ea06438c3f105138f97eb53149673c4")
 
-	c, err := NewContainer(taskID, titusInfo, *resources, *conf)
+	c, err := NewContainerWithPod(taskID, titusInfo, *resources, *conf, pod)
 	assert.NoError(t, err)
 	if got := c.QualifiedImageName(); got != expected {
 		t.Fatalf("Expected %s, got %s", expected, got)
 	}
 }
 
-func TestNewContainer(t *testing.T) {
+func TestNewContainerWithPod(t *testing.T) {
 	taskID := "task-id"
 	expectedAppName := "appName"
 	expectedCPU := int64(2)
@@ -133,7 +134,7 @@ func TestNewContainer(t *testing.T) {
 
 	config := config.Config{}
 
-	container, err := NewContainer(taskID, containerInfo, resources, config)
+	container, err := NewContainerWithPod(taskID, containerInfo, resources, config, &v1.Pod{})
 	require.Nil(t, err)
 
 	actualAppNameLabel := container.Labels()[appNameLabelKey]
@@ -216,7 +217,7 @@ func TestMetatronEnabled(t *testing.T) {
 		MetatronEnabled: true,
 	}
 
-	container, err := NewContainer(taskID, containerInfo, resources, config)
+	container, err := NewContainerWithPod(taskID, containerInfo, resources, config, &v1.Pod{})
 	require.Nil(t, err)
 	assert.Equal(t, container.Env()["TITUS_METATRON_ENABLED"], "true")
 }
@@ -254,7 +255,7 @@ func TestClusterName(t *testing.T) {
 	}
 
 	for _, f := range fixtures {
-		taskID, titusInfo, resources, conf, err := ContainerTestArgs()
+		taskID, titusInfo, resources, conf, pod, err := ContainerTestArgs()
 		assert.NoError(t, err)
 		if f.appName != "" {
 			titusInfo.AppName = &f.appName
@@ -266,7 +267,7 @@ func TestClusterName(t *testing.T) {
 			titusInfo.JobGroupStack = &f.jobGroupStack
 		}
 
-		c, err := NewContainer(taskID, titusInfo, *resources, *conf)
+		c, err := NewContainerWithPod(taskID, titusInfo, *resources, *conf, pod)
 		assert.NoError(t, err)
 
 		got := c.CombinedAppStackDetails()
@@ -329,7 +330,7 @@ func TestEnvBasedOnTaskInfo(t *testing.T) {
 			if input.info.IamProfile == nil {
 				input.info.IamProfile = protobuf.String("arn:aws:iam::0:role/DefaultContainerRole")
 			}
-			container, err := NewContainer(name, input.info, resources, *cfg)
+			container, err := NewContainerWithPod(name, input.info, resources, *cfg, &v1.Pod{})
 			require.Nil(t, err)
 			containerEnv := container.Env()
 			// Checks if everything in want is in containerEnv
@@ -657,14 +658,14 @@ func TestServiceMeshEnabled(t *testing.T) {
 		ContainerServiceMeshEnabled: true,
 	}
 
-	taskID, titusInfo, resources, _, err := ContainerTestArgs()
+	taskID, titusInfo, resources, _, pod, err := ContainerTestArgs()
 	require.Nil(t, err)
 	titusInfo.PassthroughAttributes = map[string]string{
 		serviceMeshContainerParam: imgName,
 		serviceMeshEnabledParam:   "true",
 	}
 
-	c, err := NewContainer(taskID, titusInfo, *resources, config)
+	c, err := NewContainerWithPod(taskID, titusInfo, *resources, config, pod)
 	require.Nil(t, err)
 	assert.True(t, c.ServiceMeshEnabled())
 	scConfs, err := c.SidecarConfigs()
@@ -681,9 +682,9 @@ func TestServiceMeshEnabledWithConfig(t *testing.T) {
 		ContainerServiceMeshEnabled: true,
 	}
 
-	taskID, titusInfo, resources, _, err := ContainerTestArgs()
+	taskID, titusInfo, resources, _, pod, err := ContainerTestArgs()
 	require.Nil(t, err)
-	c, err := NewContainer(taskID, titusInfo, *resources, config)
+	c, err := NewContainerWithPod(taskID, titusInfo, *resources, config, pod)
 	require.Nil(t, err)
 	assert.False(t, c.ServiceMeshEnabled())
 	scConfs, err := c.SidecarConfigs()
@@ -700,9 +701,9 @@ func TestServiceMeshEnabledWithEmptyConfigValue(t *testing.T) {
 		ProxydServiceImage:          "",
 	}
 
-	taskID, titusInfo, resources, _, err := ContainerTestArgs()
+	taskID, titusInfo, resources, _, pod, err := ContainerTestArgs()
 	require.Nil(t, err)
-	c, err := NewContainer(taskID, titusInfo, *resources, config)
+	c, err := NewContainerWithPod(taskID, titusInfo, *resources, config, pod)
 	require.Nil(t, err)
 	assert.False(t, c.ServiceMeshEnabled())
 	scConfs, err := c.SidecarConfigs()
@@ -715,10 +716,10 @@ func TestServiceMeshEnabledWithEmptyConfigValue(t *testing.T) {
 func TestSubnetIDHasSpaces(t *testing.T) {
 	config := config.Config{}
 
-	taskID, titusInfo, resources, _, err := ContainerTestArgs()
+	taskID, titusInfo, resources, _, pod, err := ContainerTestArgs()
 	require.Nil(t, err)
 	titusInfo.PassthroughAttributes[subnetsParam] = "subnet-foo, subnet-bar "
-	c, err := NewContainer(taskID, titusInfo, *resources, config)
+	c, err := NewContainerWithPod(taskID, titusInfo, *resources, config, pod)
 	require.Nil(t, err)
 	ret := c.SubnetIDs()
 	require.NotNil(t, ret)

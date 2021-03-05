@@ -13,6 +13,7 @@ import (
 	"github.com/Netflix/titus-executor/uploader"
 	vpcTypes "github.com/Netflix/titus-executor/vpc/types"
 	"google.golang.org/protobuf/proto"
+	corev1 "k8s.io/api/core/v1"
 
 	// The purpose of this is to tell gometalinter to keep vendoring this package
 	_ "github.com/Netflix/titus-api-definitions/src/main/proto/netflix/titus"
@@ -266,11 +267,11 @@ func ContainerConfig(c Container, startTime time.Time) (*titus.ContainerInfo, er
 	return ti, nil
 }
 
-// ContainerTestArgs generates test arguments appropriate for passing to NewContainer()
-func ContainerTestArgs() (string, *titus.ContainerInfo, *Resources, *config.Config, error) {
+// ContainerTestArgs generates test arguments appropriate for passing to NewContainerWithPod()
+func ContainerTestArgs() (string, *titus.ContainerInfo, *Resources, *config.Config, *corev1.Pod, error) {
 	cfg, err := config.GenerateConfiguration(nil)
 	if err != nil {
-		return "", nil, nil, nil, err
+		return "", nil, nil, nil, nil, err
 	}
 
 	titusInfo := &titus.ContainerInfo{
@@ -288,8 +289,15 @@ func ContainerTestArgs() (string, *titus.ContainerInfo, *Resources, *config.Conf
 		Disk:    10240,
 		Network: 25600,
 	}
-
-	return "taskid", titusInfo, resources, cfg, nil
+	container1 := corev1.Container{
+		Name: "taskid",
+	}
+	pod := &corev1.Pod{
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{container1},
+		},
+	}
+	return "taskid", titusInfo, resources, cfg, pod, nil
 }
 
 // Resources specify constraints to be applied to a Container
