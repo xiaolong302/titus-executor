@@ -979,45 +979,6 @@ func (c *TitusInfoContainer) ShmSizeMiB() *uint32 {
 	return nil
 }
 
-func (c *TitusInfoContainer) SidecarConfigs() (map[string]*SidecarContainerConfig, error) {
-	scMap := make(map[string]*SidecarContainerConfig)
-	svcMeshImage := ""
-	if c.ServiceMeshEnabled() {
-		img, err := c.serviceMeshImageName()
-		if err != nil {
-			return scMap, err
-		}
-		svcMeshImage = img
-	}
-
-	imageMap := map[string]string{
-		SidecarServiceAbMetrix:    c.config.AbmetrixServiceImage,
-		SidecarServiceLogViewer:   c.config.LogViewerServiceImage,
-		SidecarServiceMetatron:    c.config.MetatronServiceImage,
-		SidecarServiceServiceMesh: svcMeshImage,
-		SidecarServiceSshd:        c.config.SSHDServiceImage,
-		SidecarServiceSpectatord:  c.config.SpectatordServiceImage,
-		SidecarServiceAtlasd:      c.config.AtlasdServiceImage,
-	}
-
-	for _, sc := range sideCars {
-		sc.Image = path.Join(c.config.DockerRegistry, imageMap[sc.ServiceName])
-		scAddr := sc
-		scMap[sc.ServiceName] = &scAddr
-		log.Infof("sidecar name=%s image=%s", sc.ServiceName, sc.Image)
-	}
-
-	return scMap, nil
-}
-
-func (c *TitusInfoContainer) SignedAddressAllocationUUID() *string {
-	if c.titusInfo.SignedAddressAllocation != nil {
-		return &c.titusInfo.SignedAddressAllocation.AddressAllocation.Uuid
-	}
-
-	return nil
-}
-
 // GetSortedEnvArray returns the list of environment variables set for the container as a sorted Key=Value list
 func (c *TitusInfoContainer) SortedEnvArray() []string {
 	env := c.Env()

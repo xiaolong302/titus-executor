@@ -111,12 +111,6 @@ type EBSInfo struct {
 	FSType    string
 }
 
-type SidecarContainerConfig struct {
-	ServiceName string
-	Image       string
-	Volumes     map[string]struct{}
-}
-
 // Container contains config state for a container. It should be Read Only. It should only be initialized via a
 // constructor, and not directly.
 type Container interface {

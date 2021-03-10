@@ -907,17 +907,11 @@ func (r *DockerRuntime) Prepare(parentCtx context.Context) error { // nolint: go
 		myImageInfo         *types.ImageInspect
 		dockerCfg           *container.Config
 		hostCfg             *container.HostConfig
-		sidecarConfigs      map[string]*runtimeTypes.SidecarContainerConfig
 		size                int64
 	)
 	dockerCreateStartTime := time.Now()
 	group := groupWithContext(ctx)
 	err := r.validateEFSMounts(r.c)
-	if err != nil {
-		goto error
-	}
-
-	sidecarConfigs, err = r.c.SidecarConfigs()
 	if err != nil {
 		goto error
 	}
@@ -945,61 +939,6 @@ func (r *DockerRuntime) Prepare(parentCtx context.Context) error { // nolint: go
 		myImageInfo = imageInfo
 		return nil
 	})
-
-	if shouldStartSpectatord(&r.cfg, r.c) {
-		group.Go(r.createVolumeContainerFunc(sidecarConfigs[runtimeTypes.SidecarServiceSpectatord], &spectatordContainerName))
-	}
-
-	if shouldStartAtlasd(&r.cfg, r.c) {
-		group.Go(r.createVolumeContainerFunc(sidecarConfigs[runtimeTypes.SidecarServiceAtlasd], &atlasdContainerName))
-	}
-
-	if shouldStartMetatronSync(&r.cfg, r.c) {
-		group.Go(r.createVolumeContainerFunc(sidecarConfigs[runtimeTypes.SidecarServiceMetatron], &metatronContainerName))
-	}
-
-	if shouldStartSSHD(&r.cfg, r.c) {
-		group.Go(r.createVolumeContainerFunc(sidecarConfigs[runtimeTypes.SidecarServiceSshd], &sshdContainerName))
-	}
-
-	if shouldStartLogViewer(&r.cfg, r.c) {
-		group.Go(r.createVolumeContainerFunc(sidecarConfigs[runtimeTypes.SidecarServiceLogViewer], &logViewerContainerName))
-	}
-
-	if shouldStartServiceMesh(&r.cfg, r.c) {
-		group.Go(r.createVolumeContainerFunc(sidecarConfigs[runtimeTypes.SidecarServiceServiceMesh], &serviceMeshContainerName))
-	}
-
-	if shouldStartAbmetrix(&r.cfg, r.c) {
-		group.Go(r.createVolumeContainerFunc(sidecarConfigs[runtimeTypes.SidecarServiceAbMetrix], &abmetrixContainerName))
-	}
-
-	if shouldStartTitusSeccompAgent(&r.cfg, r.c) {
-		r.c.SetEnvs(map[string]string{
-			"TITUS_SECCOMP_NOTIFY_SOCK_PATH":         filepath.Join("/titus-executor-sockets/", "titus-seccomp-agent.sock"),
-			"TITUS_SECCOMP_AGENT_NOTIFY_SOCKET_PATH": filepath.Join(r.tiniSocketDir, "titus-seccomp-agent.sock"),
-		})
-		if r.c.SeccompAgentEnabledForPerfSyscalls() {
-			r.c.SetEnvs(map[string]string{
-				"TITUS_SECCOMP_AGENT_HANDLE_PERF_SYSCALLS": "true",
-			})
-		}
-		if r.c.SeccompAgentEnabledForPerfSyscalls() {
-			r.c.SetEnvs(map[string]string{
-				"TITUS_SECCOMP_AGENT_HANDLE_NET_SYSCALLS": "true",
-			})
-		}
-	}
-
-	if shouldStartTitusStorage(&r.cfg, r.c) {
-		v := r.c.EBSInfo()
-		r.c.SetEnvs(map[string]string{
-			"TITUS_EBS_VOLUME_ID":   v.VolumeID,
-			"TITUS_EBS_MOUNT_POINT": v.MountPath,
-			"TITUS_EBS_MOUNT_PERM":  v.MountPerm,
-			"TITUS_EBS_FSTYPE":      v.FSType,
-		})
-	}
 
 	if r.cfg.UseNewNetworkDriver {
 		group.Go(func(ctx context.Context) error {
@@ -1041,30 +980,6 @@ func (r *DockerRuntime) Prepare(parentCtx context.Context) error { // nolint: go
 
 	if err = setSystemdRunning(ctx, *myImageInfo, r.c); err != nil {
 		goto error
-	}
-
-	if spectatordContainerName != "" {
-		volumeContainers = append(volumeContainers, spectatordContainerName)
-	}
-
-	if atlasdContainerName != "" {
-		volumeContainers = append(volumeContainers, atlasdContainerName)
-	}
-
-	if metatronContainerName != "" {
-		volumeContainers = append(volumeContainers, metatronContainerName)
-	}
-	if sshdContainerName != "" {
-		volumeContainers = append(volumeContainers, sshdContainerName)
-	}
-	if logViewerContainerName != "" {
-		volumeContainers = append(volumeContainers, logViewerContainerName)
-	}
-	if serviceMeshContainerName != "" {
-		volumeContainers = append(volumeContainers, serviceMeshContainerName)
-	}
-	if abmetrixContainerName != "" {
-		volumeContainers = append(volumeContainers, abmetrixContainerName)
 	}
 
 	dockerCfg, hostCfg, err = r.dockerConfig(r.c, getLXCFsBindMounts(), size, volumeContainers)
