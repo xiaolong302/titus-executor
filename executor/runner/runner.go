@@ -39,7 +39,6 @@ type Runner struct {
 	config        config.Config
 
 	container runtimeTypes.Container
-	watcher   *filesystems.Watcher
 
 	// Close this channel to start killing the container
 	killOnce    sync.Once
@@ -204,13 +203,6 @@ func (r *Runner) runContainer(ctx context.Context, startTime time.Time, updateCh
 		return
 	}
 
-	err = r.maybeSetupExternalLogger(ctx, logDir)
-	if err != nil {
-		logger.G(ctx).Error("Unable to setup logging for container: ", err)
-		updateChan <- update{status: titusdriver.Lost, msg: err.Error(), details: details}
-		return
-	}
-
 	if details == nil {
 		logger.G(ctx).Fatal("Unable to fetch Task details")
 	}
@@ -290,7 +282,6 @@ func (r *Runner) handleTaskRunningMessage(ctx context.Context, msg string, lastM
 	updateChan <- update{status: titusdriver.Running, msg: msg, details: details}
 	*runningSent = true
 	*lastMessage = msg
-
 }
 
 func (r *Runner) doShutdown(ctx context.Context, lastUpdate update) { // nolint: gocyclo
@@ -310,13 +301,6 @@ func (r *Runner) doShutdown(ctx context.Context, lastUpdate update) { // nolint:
 		case titusdriver.Finished:
 		case titusdriver.Failed:
 		default:
-			errs = multierror.Append(errs, err)
-		}
-	}
-
-	if r.watcher != nil {
-		if err := r.watcher.Stop(); err != nil {
-			logger.G(ctx).Error("Error while shutting down watcher for: ", err)
 			errs = multierror.Append(errs, err)
 		}
 	}
@@ -359,27 +343,6 @@ func (r *Runner) wasKilled() bool {
 	default:
 		return false
 	}
-}
-
-func (r *Runner) maybeSetupExternalLogger(ctx context.Context, logDir string) error {
-	if logDir == "" {
-		logger.G(ctx).Info("Not starting external logger")
-		return nil
-	}
-	logger.G(ctx).Info("Starting external logger")
-
-	wConf := filesystems.NewWatchConfig(logDir, r.container.UploadDir("logs"), r.container.LogUploadRegexp(), *r.container.LogUploadCheckInterval(), *r.container.LogUploadThresholdTime(), *r.container.LogStdioCheckInterval(), r.container.LogKeepLocalFileAfterUpload())
-	uploader, err := uploader.NewUploader(&r.config, r.container.LogUploaderConfig(), *r.container.IamRole(), r.container.TaskID(), r.metrics)
-	if err != nil {
-		return err
-	}
-
-	r.watcher, err = filesystems.NewWatcher(r.metrics, wConf, uploader)
-	if err != nil {
-		return err
-	}
-
-	return r.watcher.Watch(ctx)
 }
 
 func (r *Runner) updateStatusWithDetails(ctx context.Context, status titusdriver.TitusTaskState, msg string, details *runtimeTypes.Details) {

@@ -30,45 +30,9 @@ type Config struct {
 	DockerHost     string
 	DockerRegistry string
 
-	// MetatronEnabled returns if Metatron is enabled
-	MetatronEnabled      bool
-	MetatronServiceImage string
-
-	// Enable an in-container logviewer via a volume container?
-	ContainerLogViewer    bool
-	LogViewerServiceImage string
-
-	// Enable abmetrix service
-	ContainerAbmetrixEnabled bool
-	AbmetrixServiceImage     string
-
-	// Enable an in-container system mesh image?
-	ContainerServiceMeshEnabled bool
-	ProxydServiceImage          string
-
-	// Do we enable a container-specific SSHD?
-	ContainerSSHD    bool
-	SSHDServiceImage string
-
-	ContainerSSHDCAFile string
-	ContainerSSHDUsers  cli.StringSlice
-	SSHAccountID        string
-
-	// Do we enable spectator rootless image?
-	ContainerSpectatord    bool
-	SpectatordServiceImage string
-
-	// Do we enable atlasd rootless image?
-	ContainerAtlasd    bool
-	AtlasdServiceImage string
-
 	// CopiedFromHost indicates which environment variables to lift from the current config
 	copiedFromHostEnv cli.StringSlice
 	hardCodedEnv      cli.StringSlice
-
-	CopyUploaders cli.StringSlice
-	S3Uploaders   cli.StringSlice
-	NoopUploaders cli.StringSlice
 }
 
 // NewConfig generates a configuration and a set of flags to passed to urfave/cli
@@ -149,86 +113,6 @@ func NewConfig() (*Config, []cli.Flag) {
 			Destination: &cfg.DockerRegistry,
 			EnvVar:      "DOCKER_REGISTRY",
 		},
-		cli.StringFlag{
-			Name:        "metatron-service-image",
-			Destination: &cfg.MetatronServiceImage,
-			EnvVar:      "METATRON_SERVICE_IMAGE",
-		},
-		cli.BoolTFlag{
-			Name:        "container-logviewer",
-			Destination: &cfg.ContainerLogViewer,
-			EnvVar:      "CONTAINER_LOGVIEWER",
-		},
-		cli.StringFlag{
-			Name:        "logviewer-service-image",
-			Destination: &cfg.LogViewerServiceImage,
-			EnvVar:      "LOGVIEWER_SERVICE_IMAGE",
-		},
-		cli.BoolTFlag{
-			Name:        "container-abmetrix",
-			Destination: &cfg.ContainerAbmetrixEnabled,
-			EnvVar:      "CONTAINER_ABMETRIX",
-		},
-		cli.StringFlag{
-			Name:        "abmetrix-service-image",
-			Destination: &cfg.AbmetrixServiceImage,
-			EnvVar:      "ABMETRIX_SERVICE_IMAGE",
-		},
-		cli.BoolFlag{
-			Name:        "container-servicemesh-enabled",
-			EnvVar:      "CONTAINER_SERVICEMESH_ENABLED",
-			Destination: &cfg.ContainerServiceMeshEnabled,
-		},
-		cli.StringFlag{
-			Name:        "proxyd-service-image",
-			Destination: &cfg.ProxydServiceImage,
-			EnvVar:      "PROXYD_SERVICE_IMAGE",
-		},
-		cli.BoolTFlag{
-			Name:        "container-sshd",
-			Destination: &cfg.ContainerSSHD,
-			EnvVar:      "CONTAINER_SSHD",
-		},
-		cli.StringFlag{
-			Name:        "sshd-service-image",
-			Destination: &cfg.SSHDServiceImage,
-			EnvVar:      "SSHD_SERVICE_IMAGE",
-		},
-		cli.StringFlag{
-			Name:        "container-sshd-ca-file",
-			Value:       "/etc/ssh/titus_user_ssh_key_cas.pub",
-			Destination: &cfg.ContainerSSHDCAFile,
-			EnvVar:      "CONTAINER_SSHD_CA_FILE",
-		},
-		cli.StringSliceFlag{
-			Name:  "container-sshd-users",
-			Value: &cfg.ContainerSSHDUsers,
-		},
-		cli.StringFlag{
-			Name:        "ssh-account-id",
-			Destination: &cfg.SSHAccountID,
-			EnvVar:      "SSH_ACCOUNT_ID",
-		},
-		cli.BoolFlag{
-			Name:        "container-spectatord",
-			EnvVar:      "CONTAINER_SPECTATORD",
-			Destination: &cfg.ContainerSpectatord,
-		},
-		cli.StringFlag{
-			Name:        "container-spectatord-image",
-			EnvVar:      "SPECTATORD_SERVICE_IMAGE",
-			Destination: &cfg.SpectatordServiceImage,
-		},
-		cli.BoolFlag{
-			Name:        "container-atlasd",
-			EnvVar:      "CONTAINER_ATLASD",
-			Destination: &cfg.ContainerAtlasd,
-		},
-		cli.StringFlag{
-			Name:        "container-atlasd-image",
-			EnvVar:      "ATLASD_SERVICE_IMAGE",
-			Destination: &cfg.AtlasdServiceImage,
-		},
 		cli.StringSliceFlag{
 			Name:  "copied-from-host-env",
 			Value: &cfg.copiedFromHostEnv,
@@ -236,19 +120,6 @@ func NewConfig() (*Config, []cli.Flag) {
 		cli.StringSliceFlag{
 			Name:  "hard-coded-env",
 			Value: &cfg.hardCodedEnv,
-		},
-
-		cli.StringSliceFlag{
-			Name:  "s3-uploader",
-			Value: &cfg.S3Uploaders,
-		},
-		cli.StringSliceFlag{
-			Name:  "copy-uploader",
-			Value: &cfg.CopyUploaders,
-		},
-		cli.StringSliceFlag{
-			Name:  "noop-uploaders",
-			Value: &cfg.NoopUploaders,
 		},
 	}
 
