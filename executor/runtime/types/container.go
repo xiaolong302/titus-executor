@@ -166,12 +166,7 @@ func NewContainerWithPod(taskID string, titusInfo *titus.ContainerInfo, resource
 		config:       cfg,
 	}
 
-	if pod != nil {
-		if l := len(pod.Spec.Containers); l != 1 {
-			return nil, fmt.Errorf("Pod has unexpected number of containers (not 1): %d", l)
-		}
-		c.pod = pod.DeepCopy()
-	}
+	c.pod = pod.DeepCopy()
 
 	if eniLabel := networkCfgParams.GetEniLabel(); eniLabel != "" {
 		titusENIIndex, err := strconv.Atoi(networkCfgParams.GetEniLabel())

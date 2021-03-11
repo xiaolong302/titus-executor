@@ -107,7 +107,6 @@ type DockerRuntime struct { // nolint: golint
 	client            *docker.Client
 	awsRegion         string
 	tiniSocketDir     string
-	tiniEnabled       bool
 	storageOptEnabled bool
 	pidCgroupPath     string
 	cfg               config.Config
@@ -171,12 +170,6 @@ func NewDockerRuntime(ctx context.Context, m metrics.Reporter, dockerCfg Config,
 			storageOptEnabled: storageOptEnabled,
 		}
 
-		if strings.Contains(info.InitBinary, "tini") {
-			dockerRuntime.tiniEnabled = true
-		} else {
-			log.WithField("initBinary", info.InitBinary).Warning("Docker runtime disabling Tini support")
-		}
-
 		for _, dockerOpt := range dockerOpts {
 			err := dockerOpt(ctx, dockerRuntime)
 			if err != nil {
@@ -234,14 +227,6 @@ func (r *DockerRuntime) registerRuntimeCleanup(callback cleanupFunc) {
 	r.cleanupFuncLock.Lock()
 	defer r.cleanupFuncLock.Unlock()
 	r.cleanup = append(r.cleanup, callback)
-}
-
-func (r *DockerRuntime) validateEFSMounts(c runtimeTypes.Container) error {
-	if len(c.EfsConfigInfo()) > 0 && !r.tiniEnabled {
-		return errors.New("Tini Disabled; Cannot setup EFS volume")
-	}
-
-	return nil
 }
 
 func setupLoggingInfra(dockerRuntime *DockerRuntime) error {
@@ -900,10 +885,6 @@ func (r *DockerRuntime) Prepare(parentCtx context.Context) error { // nolint: go
 	)
 	dockerCreateStartTime := time.Now()
 	group := groupWithContext(ctx)
-	err := r.validateEFSMounts(r.c)
-	if err != nil {
-		goto error
-	}
 
 	group.Go(func(ctx context.Context) error {
 		imageInfo, pullErr := r.DockerPull(ctx, r.c)
@@ -962,7 +943,7 @@ func (r *DockerRuntime) Prepare(parentCtx context.Context) error { // nolint: go
 
 	group.Go(r.setupGPU)
 
-	err = group.Wait()
+	err := group.Wait()
 	if err != nil {
 		goto error
 	}
@@ -1263,16 +1244,9 @@ func (r *DockerRuntime) Start(parentCtx context.Context) (string, *runtimeTypes.
 	}
 
 	// This sets up the tini listener. It will autoclose whenever the
-	if r.tiniEnabled {
-		listener, err = r.setupPreStartTini(ctx, r.c)
-		if err != nil {
-			return "", nil, statusMessageChan, err
-		}
-	} else {
-		if len(efsMountInfos) > 0 {
-			entry.Fatal("Cannot perform EFS mounts without Tini")
-		}
-		entry.Warning("Starting Without Tini, no logging (globally disabled)")
+	listener, err = r.setupPreStartTini(ctx, r.c)
+	if err != nil {
+		return "", nil, statusMessageChan, err
 	}
 
 	dockerStartStartTime := time.Now()
@@ -1328,15 +1302,13 @@ func (r *DockerRuntime) Start(parentCtx context.Context) (string, *runtimeTypes.
 		details.NetworkConfiguration.ElasticIPAddress = allocation.ElasticAddress.Ip
 	}
 
-	if r.tiniEnabled {
-		logDir, err := r.waitForTini(ctx, listener, efsMountInfos, r.c)
-		if err != nil {
-			eventCancel()
-		} else {
-			go r.statusMonitor(eventCancel, r.c, eventChan, eventErrChan, statusMessageChan)
-		}
-		return logDir, details, statusMessageChan, err
+	logDir, err := r.waitForTini(ctx, listener, efsMountInfos, r.c)
+	if err != nil {
+		eventCancel()
+	} else {
+		go r.statusMonitor(eventCancel, r.c, eventChan, eventErrChan, statusMessageChan)
 	}
+	return logDir, details, statusMessageChan, err
 
 	go r.statusMonitor(eventCancel, r.c, eventChan, eventErrChan, statusMessageChan)
 	// We already logged above that we aren't using Tini
