@@ -2,12 +2,10 @@ package types
 
 import (
 	"encoding/base64"
-	"regexp"
 	"testing"
 	"time"
 
 	"github.com/Netflix/titus-executor/api/netflix/titus"
-	"github.com/Netflix/titus-executor/uploader"
 	vpcTypes "github.com/Netflix/titus-executor/vpc/types"
 	"github.com/golang/protobuf/proto" // nolint: staticcheck
 	"gotest.tools/assert"
@@ -84,12 +82,9 @@ func TestNewPodContainer(t *testing.T) {
 	var int64Nil *int64
 	var uint32Nil *uint32
 	var stringNil *string
-	var durationNil *time.Duration
 	var capNil *titus.ContainerInfo_Capabilities
 	var efsNil []*titus.ContainerInfo_EfsConfigInfo
 	var gpuNil GPUContainer
-	var uploaderConfNil *uploader.Config
-	var regexpNil *regexp.Regexp
 	var metatronCredsNil *titus.ContainerInfo_MetatronCreds
 	var resourcesNil *Resources
 	var stringsNil *[]string
@@ -123,12 +118,6 @@ func TestNewPodContainer(t *testing.T) {
 	assert.Equal(t, c.KillWaitSeconds(), uint32Nil)
 	assert.Equal(t, c.KvmEnabled(), false)
 	assert.DeepEqual(t, c.Labels(), map[string]string{})
-	assert.Equal(t, c.LogKeepLocalFileAfterUpload(), false)
-	assert.Equal(t, c.LogStdioCheckInterval(), durationNil)
-	assert.Equal(t, c.LogUploadCheckInterval(), durationNil)
-	assert.Equal(t, c.LogUploaderConfig(), uploaderConfNil)
-	assert.Equal(t, c.LogUploadRegexp(), regexpNil)
-	assert.Equal(t, c.LogUploadThresholdTime(), durationNil)
 	assert.Equal(t, c.MetatronCreds(), metatronCredsNil)
 	assert.Equal(t, c.NormalizedENIIndex(), intNil)
 	assert.Equal(t, c.OomScoreAdj(), int32Nil)
@@ -137,18 +126,12 @@ func TestNewPodContainer(t *testing.T) {
 	assert.Equal(t, c.RequireIMDSToken(), stringNil)
 	assert.Equal(t, c.Runtime(), "")
 	assert.DeepEqual(t, c.SecurityGroupIDs(), stringsNil)
-	assert.Equal(t, c.ServiceMeshEnabled(), false)
 	assert.Equal(t, c.ShmSizeMiB(), uint32Nil)
-
-	sidecars, err := c.SidecarConfigs()
-	assert.NilError(t, err)
-	assert.DeepEqual(t, sidecars, map[string]*SidecarContainerConfig{})
 
 	assert.Equal(t, c.SignedAddressAllocationUUID(), stringNil)
 	assert.DeepEqual(t, c.SortedEnvArray(), []string{})
 	assert.Equal(t, c.SubnetIDs(), stringNil)
 	assert.Equal(t, c.TTYEnabled(), false)
-	assert.Equal(t, c.UploadDir("foo"), "")
 	assert.Equal(t, c.UseJumboFrames(), false)
 	assert.Equal(t, c.VPCAllocation(), vpcAllocNil)
 	assert.Equal(t, c.VPCAccountID(), stringNil)

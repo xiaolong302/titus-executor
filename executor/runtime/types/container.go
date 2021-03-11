@@ -38,18 +38,18 @@ const (
 	titusJobIDKey            = "TITUS_JOB_ID"
 
 	// Passthrough params
-	hostnameStyleParam                      = "titusParameter.agent.hostnameStyle"
-	FuseEnabledParam                        = "titusParameter.agent.fuseEnabled"
-	KvmEnabledParam                         = "titusParameter.agent.kvmEnabled"
-	assignIPv6AddressParam                  = "titusParameter.agent.assignIPv6Address"
-	batchPriorityParam                      = "titusParameter.agent.batchPriority"
-	ttyEnabledParam                         = "titusParameter.agent.ttyEnabled"
-	jumboFrameParam                         = "titusParameter.agent.allowNetworkJumbo"
-	AccountIDParam                          = "titusParameter.agent.accountId"
-	imdsRequireTokenParam                   = "titusParameter.agent.imds.requireToken"
-	subnetsParam                            = "titusParameter.agent.subnets"
-	elasticIPPoolParam                      = "titusParameter.agent.elasticIPPool"
-	elasticIPsParam                         = "titusParameter.agent.elasticIPs"
+	hostnameStyleParam     = "titusParameter.agent.hostnameStyle"
+	FuseEnabledParam       = "titusParameter.agent.fuseEnabled"
+	KvmEnabledParam        = "titusParameter.agent.kvmEnabled"
+	assignIPv6AddressParam = "titusParameter.agent.assignIPv6Address"
+	batchPriorityParam     = "titusParameter.agent.batchPriority"
+	ttyEnabledParam        = "titusParameter.agent.ttyEnabled"
+	jumboFrameParam        = "titusParameter.agent.allowNetworkJumbo"
+	AccountIDParam         = "titusParameter.agent.accountId"
+	imdsRequireTokenParam  = "titusParameter.agent.imds.requireToken"
+	subnetsParam           = "titusParameter.agent.subnets"
+	elasticIPPoolParam     = "titusParameter.agent.elasticIPPool"
+	elasticIPsParam        = "titusParameter.agent.elasticIPs"
 
 	// DefaultOciRuntime is the default oci-compliant runtime used to run system services
 	DefaultOciRuntime = "runc"
@@ -126,9 +126,9 @@ type TitusInfoContainer struct {
 	// FuseEnabled determines whether the container has FUSE devices exposed to it
 	fuseEnabled bool
 	// KvmEnabled determines whether the container has KVM exposed to it
-	kvmEnabled                         bool
-	requireIMDSToken                   string
-	ttyEnabled                         bool
+	kvmEnabled       bool
+	requireIMDSToken string
+	ttyEnabled       bool
 
 	config config.Config
 }
@@ -741,6 +741,14 @@ func (c *TitusInfoContainer) SetEnv(key, value string) {
 	c.envLock.Lock()
 	defer c.envLock.Unlock()
 	c.envOverrides[key] = value
+}
+
+func (c *TitusInfoContainer) SignedAddressAllocationUUID() *string {
+	if c.titusInfo.SignedAddressAllocation != nil {
+		return &c.titusInfo.SignedAddressAllocation.AddressAllocation.Uuid
+	}
+
+	return nil
 }
 
 func (c *TitusInfoContainer) SetEnvs(env map[string]string) {

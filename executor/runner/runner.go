@@ -187,6 +187,7 @@ func (r *Runner) runContainer(ctx context.Context, startTime time.Time, updateCh
 	}
 
 	logDir, details, statusChan, err := r.runtime.Start(ctx)
+	logger.G(ctx).Infof("using %s as logDir", logDir)
 	if err != nil { // nolint: vetshadow
 		r.metrics.Counter("titus.executor.launchTaskFailed", 1, nil)
 		logger.G(ctx).Info("start container: ", err)

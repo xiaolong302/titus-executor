@@ -3,13 +3,11 @@
 package docker
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"io/ioutil"
 	"net"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -42,14 +40,6 @@ type schedParam struct {
 // Function to determine if a service should be enabled or not
 type serviceEnabledFunc func(cfg *config.Config, c runtimeTypes.Container) bool
 
-type serviceOpts struct {
-	humanName    string
-	initCommand  string
-	required     bool
-	unitName     string
-	enabledCheck serviceEnabledFunc
-}
-
 const (
 	titusInits                = "/var/lib/titus-inits"
 	systemServiceStartTimeout = 90 * time.Second
@@ -59,73 +49,12 @@ const (
 	defaultOomScore           = 1000
 )
 
-var systemServices = []serviceOpts{
-	{
-		humanName:    "spectatord",
-		unitName:     "titus-spectatord",
-		enabledCheck: shouldStartSpectatord,
-		required:     false,
-	},
-	{
-		humanName:    "atlas",
-		unitName:     "titus-atlasd",
-		enabledCheck: shouldStartAtlasd,
-		required:     false,
-	},
-	{
-		humanName:    "atlas",
-		unitName:     "atlas-titus-agent",
-		enabledCheck: shouldStartAtlasAgent,
-		required:     false,
-	},
-	{
-		humanName:    "ssh",
-		unitName:     "titus-sshd",
-		enabledCheck: shouldStartSSHD,
-		required:     false,
-	},
-	{
-		humanName: "metadata proxy",
-		unitName:  "titus-metadata-proxy",
-		required:  true,
-	},
-	{
-		humanName:    "metatron",
-		unitName:     "titus-metatron-sync",
-		required:     true,
-		initCommand:  "/titus/metatron/bin/titus-metatrond --init",
-		enabledCheck: shouldStartMetatronSync,
-	},
-	{
-		humanName:    "logviewer",
-		unitName:     "titus-logviewer",
-		required:     true,
-		enabledCheck: shouldStartLogViewer,
-	},
-	{
-		humanName:    "service mesh",
-		unitName:     "titus-servicemesh",
-		required:     true,
-		enabledCheck: shouldStartServiceMesh,
-	},
-	{
-		humanName:    "abmetrix",
-		unitName:     "titus-abmetrix",
-		required:     false,
-		enabledCheck: shouldStartAbmetrix,
-	},
-	{
-		humanName:    "seccomp agent",
-		unitName:     "titus-seccomp-agent",
-		required:     true,
-		enabledCheck: shouldStartTitusSeccompAgent,
-	},
-	{
-		humanName:    "titus-storage",
-		unitName:     "titus-storage",
-		required:     true,
-		enabledCheck: shouldStartTitusStorage,
-	},
+var systemServices = []string{
+	"titus-metadata-proxy",
+}
+
+var systemVolumes = map[string]string{
+	"titus-sidecar:latest.release": "/titus/sidecar",
 }
 
 func getPeerInfo(unixConn *net.UnixConn) (ucred, error) {
@@ -195,19 +124,15 @@ func setupSystemServices(parentCtx context.Context, c runtimeTypes.Container, cf
 	}
 	defer conn.Close()
 
-	for _, svc := range systemServices {
-		if svc.enabledCheck != nil && !svc.enabledCheck(&cfg, c) {
-			continue
-		}
-
+	for _, unitName := range systemServices {
 		// Different runtimes have different root paths that need to be passed to runc with `--root`.
 		// In particular, we use the `oci-add-hooks` runtime for GPU containers.
 		runtime := runtimeTypes.DefaultOciRuntime
 		if r := c.Runtime(); r != "" {
 			runtime = r
 		}
-		if err := startSystemdUnit(ctx, conn, c.TaskID(), c.ID(), runtime, svc); err != nil {
-			logrus.WithError(err).Errorf("Error starting %s service", svc.humanName)
+		if err := startSystemdUnit(ctx, conn, c.TaskID(), c.ID(), runtime, unitName); err != nil {
+			logrus.WithError(err).Errorf("Error starting %s service", unitName)
 			return err
 		}
 	}
@@ -215,63 +140,15 @@ func setupSystemServices(parentCtx context.Context, c runtimeTypes.Container, cf
 	return nil
 }
 
-func runServiceInitCommand(ctx context.Context, log *logrus.Entry, cID string, runtime string, opts serviceOpts) error {
-	if opts.initCommand == "" {
-		return nil
-	}
-
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-	l := log.WithField("initCommand", opts.initCommand)
-	cmdArgStr := fmt.Sprintf(runcArgFormat, runtime, cID, opts.initCommand)
-	cmdArgs := strings.Split(cmdArgStr, " ")
-
-	runcCommand, err := exec.LookPath(runtimeTypes.DefaultOciRuntime)
-	if err != nil {
-		return err
-	}
-
-	l.WithField("args", cmdArgStr).Infof("Running init command for %s service", opts.unitName)
-	cmd := exec.CommandContext(ctx, runcCommand, cmdArgs...)
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-
-	err = cmd.Run()
-	if err != nil {
-		outputStr := stdout.String()
-		l.WithError(err).WithField("exitCode", cmd.ProcessState.ExitCode()).Errorf("error running init command for %s service", opts.unitName)
-		l.Infof("%s service stdout: %s", opts.unitName, outputStr)
-		l.Infof("%s service sterr: %s", opts.unitName, stderr.String())
-
-		if len(outputStr) != 0 {
-			// Find the last non-empty line in stdout and use that as the error message
-			splitOutput := strings.Split(strings.TrimSuffix(strings.TrimSpace(outputStr), "\n"), "\n")
-			errStr := splitOutput[len(splitOutput)-1]
-			return errors.Wrapf(err, "error starting %s service: %s", opts.humanName, errStr)
-		}
-
-		return errors.Wrapf(err, "error starting %s service", opts.humanName)
-	}
-
-	return nil
-}
-
-func startSystemdUnit(ctx context.Context, conn *dbus.Conn, taskID string, cID string, runtime string, opts serviceOpts) error {
-	qualifiedUnitName := fmt.Sprintf("%s@%s.service", opts.unitName, taskID)
+func startSystemdUnit(ctx context.Context, conn *dbus.Conn, taskID string, cID string, runtime string, unitName string) error {
+	qualifiedUnitName := fmt.Sprintf("%s@%s.service", unitName, taskID)
 	l := logrus.WithFields(logrus.Fields{
 		"containerId": cID,
 		"taskID":      taskID,
-		"unit":        opts.unitName,
+		"unit":        unitName,
 	})
 
-	if err := runServiceInitCommand(ctx, l, cID, runtime, opts); err != nil {
-		return err
-	}
-
 	timeout := 5 * time.Second
-	if opts.required {
-		timeout = 30 * time.Second
-	}
 
 	l.Infof("starting systemd unit %s", qualifiedUnitName)
 	ch := make(chan string, 1)
@@ -282,26 +159,15 @@ func startSystemdUnit(ctx context.Context, conn *dbus.Conn, taskID string, cID s
 	case <-ctx.Done():
 		doneErr := ctx.Err()
 		if doneErr == context.DeadlineExceeded {
-			if opts.required {
-				return errors.Wrapf(doneErr, "timeout (overall task start dealine exceeded) starting %s service", opts.humanName)
-			}
-			l.Errorf("timeout (overall task start dealine exceeded) starting %s service (not required to launch this task)", opts.humanName)
-			return nil
+			return errors.Wrapf(doneErr, "timeout (overall task start dealine exceeded) starting %s service", unitName)
 		}
 		return doneErr
 	case val := <-ch:
 		if val != "done" {
-			if opts.required {
-				return fmt.Errorf("could not start %s service (%s): %s", opts.humanName, qualifiedUnitName, val)
-			}
-			l.Errorf("unknown response when starting systemd unit '%s': %s", qualifiedUnitName, val)
+			return fmt.Errorf("could not start %s service (%s): %s", unitName, qualifiedUnitName, val)
 		}
 	case <-time.After(timeout):
-		if opts.required {
-			return fmt.Errorf("timeout after %d seconds starting %s service (which is required to start)", timeout, opts.humanName)
-		}
-		l.Errorf("timeout after %d seconds starting %s service (not required to launch this task)", timeout, opts.humanName)
-		return nil
+		return fmt.Errorf("timeout after %d seconds starting %s service (which is required to start)", timeout, unitName)
 	}
 	return nil
 }

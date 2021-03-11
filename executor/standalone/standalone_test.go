@@ -15,6 +15,7 @@ import (
 
 	"github.com/Netflix/metrics-client-go/metrics"
 	"github.com/Netflix/titus-executor/api/netflix/titus"
+	"github.com/Netflix/titus-executor/config"
 	titusdriver "github.com/Netflix/titus-executor/executor/drivers"
 	"github.com/Netflix/titus-executor/executor/runner"
 	"github.com/Netflix/titus-executor/executor/runtime/docker"
@@ -89,10 +90,6 @@ var (
 		name: "titusoss/ubuntu-env-label",
 		tag:  "20180621-1529540359",
 	}
-	userSet = testImage{
-		name: "titusoss/user-set",
-		tag:  "20190209-1549676483",
-	}
 	systemdImage = testImage{
 		name: "titusoss/ubuntu-systemd-bionic",
 		tag:  "20181219-1545261266",
@@ -150,13 +147,10 @@ func TestStandalone(t *testing.T) {
 		testTty,
 		testTtyNegative,
 		testCachedDockerPull,
-		testMetatron,
-		testMetatronFailure,
 		testRunTmpFsMount,
 		testExecSlashRun,
 		testSystemdImageMount,
 		testShm,
-		testContainerLogViewer,
 		testcve202014386,
 		testnc,
 		testGPUManager1GPU,
@@ -195,7 +189,15 @@ func addImageNameToTest(f func(*testing.T, string), funTitle string) func(*testi
 }
 
 func dockerImageRemove(t *testing.T, imgName string) {
-	cfg, dockerCfg := GenerateConfigs(nil)
+	cfg, err := config.GenerateConfiguration([]string{})
+	if err != nil {
+		panic(err)
+	}
+
+	dockerCfg, err := docker.GenerateConfiguration(nil)
+	if err != nil {
+		panic(err)
+	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -215,7 +217,15 @@ func dockerImageRemove(t *testing.T, imgName string) {
 }
 
 func dockerPull(t *testing.T, imgName string, imgDigest string) (*dockerTypes.ImageInspect, error) {
-	cfg, dockerCfg := GenerateConfigs(nil)
+	cfg, err := config.GenerateConfiguration([]string{})
+	if err != nil {
+		panic(err)
+	}
+
+	dockerCfg, err := docker.GenerateConfiguration(nil)
+	if err != nil {
+		panic(err)
+	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -1004,50 +1014,6 @@ func testCachedDockerPull(t *testing.T, jobID string) {
 	assert.EqualValues(t, noEntrypoint.name+"@"+noEntrypoint.digest, res.RepoDigests[0], "Correct digest should be returned")
 }
 
-func testMetatron(t *testing.T, jobID string) {
-	ji := &JobInput{
-		ImageName:       userSet.name,
-		Version:         userSet.tag,
-		MetatronEnabled: true,
-		// The metatron test image writes out the task identity retrieved from the metadata service to `/task-identity`
-		EntrypointOld: fmt.Sprintf("/bin/bash -c \"grep %s /task-identity && grep jobAcceptedTimestampMs /task-identity | grep -E '[\\d+]'\"", jobID),
-		JobID:         jobID,
-	}
-	if !RunJobExpectingSuccess(t, ji) {
-		t.Fail()
-	}
-}
-
-// Test that we return failure messages from services
-func testMetatronFailure(t *testing.T, jobID string) {
-	ctx, cancel := context.WithTimeout(context.Background(), defaultFailureTimeout)
-	defer cancel()
-
-	ji := &JobInput{
-		ImageName:       userSet.name,
-		Version:         userSet.tag,
-		MetatronEnabled: true,
-		// We should never get to running this, since we're expecting the metatron service to fail before the entrypoint can run
-		EntrypointOld: "grep " + jobID + " /task-identity",
-		Environment: map[string]string{
-			// Setting this env var causes the test metatron image to fail with the message "initialization failed"
-			"TITUS_TEST_FAIL_METATRON_INIT": "true",
-		},
-		JobID: jobID,
-	}
-
-	jobResponse, err := StartJob(t, ctx, ji)
-	require.NoError(t, err)
-	defer jobResponse.StopExecutor()
-
-	status, err := jobResponse.WaitForFailureStatus(ctx)
-	assert.Nil(t, err)
-	assert.NotNil(t, status)
-	if status != nil {
-		assert.Equal(t, "error starting metatron service: initialization failed: exit status 1", status.Mesg)
-	}
-}
-
 // Test that `/run` is a tmpfs mount, and has the default size
 func testRunTmpFsMount(t *testing.T, jobID string) {
 	var mem int64 = 256
@@ -1102,31 +1068,6 @@ func testShm(t *testing.T, jobID string) {
 		ShmSize:       &shmSize,
 		EntrypointOld: `/bin/bash -c 'df | grep -e '^shm' | grep 196608'`,
 		JobID:         jobID,
-	}
-	if !RunJobExpectingSuccess(t, ji) {
-		t.Fail()
-	}
-}
-
-func testContainerLogViewer(t *testing.T, jobID string) {
-	ji := &JobInput{
-		ImageName:        ubuntu.name,
-		Version:          ubuntu.tag,
-		LogViewerEnabled: true,
-		EntrypointOld: "/bin/bash -c '" +
-			"echo stdout-should-go-to-log;" +
-			"source /etc/profile.d/netflix_environment.sh;" +
-			"i=0;" +
-			"url=\"http://localhost:8004/logs/${TITUS_TASK_ID}?f=stdout\"; " +
-			"while [[ $i -lt 10 ]] && ! curl -s $url | grep -q stdout-should-go-to-log ; do " +
-			"  sleep 1;" +
-			"  echo $i;" +
-			"  ((i++));" +
-			"done; " +
-			"curl -Is $url;" +
-			"curl -sf $url | grep -q stdout-should-go-to-log" +
-			"'",
-		JobID: jobID,
 	}
 	if !RunJobExpectingSuccess(t, ji) {
 		t.Fail()

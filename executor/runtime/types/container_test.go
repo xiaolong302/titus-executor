@@ -166,9 +166,6 @@ func TestNewContainer(t *testing.T) {
 	actualWorkloadTypeLabel := container.Labels()[workloadTypeLabelKey]
 	assert.Equal(t, expectedWorkloadType, WorkloadType(actualWorkloadTypeLabel))
 
-	// Default to false unless metatron is explicitly configured
-	assert.Equal(t, container.Env()["TITUS_METATRON_ENABLED"], "false")
-
 	actualProcessEntrypoint, actualProcessCmd := container.Process()
 	assert.Equal(t, actualProcessEntrypoint, []string{"entrypoint", "arg0", "arg1"})
 	assert.Equal(t, actualProcessCmd, []string{"cmd", "arg0", "arg1"})
@@ -181,44 +178,6 @@ func TestNewContainer(t *testing.T) {
 	assert.Equal(t, *containerConfig.RunState.LaunchTimeUnixSec, uint64(startTime.Unix()))
 	assert.Equal(t, *containerConfig.RunState.TaskId, taskID)
 	assert.Equal(t, *containerConfig.RunState.HostName, taskID)
-
-	assert.False(t, container.ServiceMeshEnabled())
-	scConfs, err := container.SidecarConfigs()
-	require.Nil(t, err)
-	svcMeshConf := scConfs[SidecarServiceServiceMesh]
-	assert.NotNil(t, svcMeshConf)
-	// service mesh image should be unset by default
-	assert.Equal(t, svcMeshConf.Image, "")
-}
-
-func TestMetatronEnabled(t *testing.T) {
-	taskID := "task-id"
-	expectedNetwork := uint32(256)
-	batch := true
-
-	containerInfo := &titus.ContainerInfo{
-		ImageName: protobuf.String("titusoss/alpine"),
-		Version:   protobuf.String("latest"),
-		NetworkConfigInfo: &titus.ContainerInfo_NetworkConfigInfo{
-			BandwidthLimitMbps: &expectedNetwork,
-		},
-		AllowCpuBursting: &batch,
-		IamProfile:       protobuf.String("arn:aws:iam::0:role/DefaultContainerRole"),
-	}
-
-	resources := Resources{
-		CPU:  2,
-		Mem:  1024,
-		Disk: 15000,
-	}
-
-	config := config.Config{
-		MetatronEnabled: true,
-	}
-
-	container, err := NewContainer(taskID, containerInfo, resources, config)
-	require.Nil(t, err)
-	assert.Equal(t, container.Env()["TITUS_METATRON_ENABLED"], "true")
 }
 
 func TestClusterName(t *testing.T) {
@@ -286,7 +245,6 @@ func TestEnvBasedOnTaskInfo(t *testing.T) {
 
 			cfg, err := config.GenerateConfiguration(nil)
 			require.Nil(t, err)
-			cfg.SSHAccountID = "config"
 			cfg.GetHardcodedEnv()
 
 			if input.cpu == "" {
@@ -649,67 +607,6 @@ func TestEnvBasedOnTaskInfo(t *testing.T) {
 	for _, f := range fixtures {
 		t.Run(f.name, check(f.name, f.input, f.want))
 	}
-}
-
-func TestServiceMeshEnabled(t *testing.T) {
-	imgName := "titusoss/test-svcmesh:latest"
-	config := config.Config{
-		ContainerServiceMeshEnabled: true,
-	}
-
-	taskID, titusInfo, resources, _, err := ContainerTestArgs()
-	require.Nil(t, err)
-	titusInfo.PassthroughAttributes = map[string]string{
-		serviceMeshContainerParam: imgName,
-		serviceMeshEnabledParam:   "true",
-	}
-
-	c, err := NewContainer(taskID, titusInfo, *resources, config)
-	require.Nil(t, err)
-	assert.True(t, c.ServiceMeshEnabled())
-	scConfs, err := c.SidecarConfigs()
-	require.Nil(t, err)
-	svcMeshConf := scConfs[SidecarServiceServiceMesh]
-	assert.NotNil(t, svcMeshConf)
-	assert.Equal(t, svcMeshConf.Image, imgName)
-}
-
-func TestServiceMeshEnabledWithConfig(t *testing.T) {
-	// If service mesh is set to enabled, but neither the `ProxydServiceImage` config value
-	// or the passhtrough property are set, service mesh should end up disabled
-	config := config.Config{
-		ContainerServiceMeshEnabled: true,
-	}
-
-	taskID, titusInfo, resources, _, err := ContainerTestArgs()
-	require.Nil(t, err)
-	c, err := NewContainer(taskID, titusInfo, *resources, config)
-	require.Nil(t, err)
-	assert.False(t, c.ServiceMeshEnabled())
-	scConfs, err := c.SidecarConfigs()
-	require.Nil(t, err)
-	svcMeshConf := scConfs[SidecarServiceServiceMesh]
-	assert.NotNil(t, svcMeshConf)
-	assert.Equal(t, svcMeshConf.Image, "")
-}
-
-func TestServiceMeshEnabledWithEmptyConfigValue(t *testing.T) {
-	// Setting proxyd image to the empty string should result servicemesh being disabled
-	config := config.Config{
-		ContainerServiceMeshEnabled: true,
-		ProxydServiceImage:          "",
-	}
-
-	taskID, titusInfo, resources, _, err := ContainerTestArgs()
-	require.Nil(t, err)
-	c, err := NewContainer(taskID, titusInfo, *resources, config)
-	require.Nil(t, err)
-	assert.False(t, c.ServiceMeshEnabled())
-	scConfs, err := c.SidecarConfigs()
-	require.Nil(t, err)
-	svcMeshConf := scConfs[SidecarServiceServiceMesh]
-	assert.NotNil(t, svcMeshConf)
-	assert.Equal(t, svcMeshConf.Image, "")
 }
 
 func TestSubnetIDHasSpaces(t *testing.T) {

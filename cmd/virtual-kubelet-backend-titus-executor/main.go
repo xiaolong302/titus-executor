@@ -103,8 +103,6 @@ func mainWithError(podFileName string, statusPipe string, dockerCfg *docker.Conf
 	m = runner.NewReporter(m)
 	defer m.Flush()
 
-	log.G(ctx).WithField("pod", pod.Name).Debugf("Getting uploaders from %+v", cfg.S3Uploaders)
-
 	rp, err := docker.NewDockerRuntime(ctx, m, *dockerCfg, *cfg)
 	if err != nil {
 		return errors.Wrap(err, "cannot create Titus executor")

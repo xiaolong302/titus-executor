@@ -4,11 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io/ioutil"
 	"math/rand"
-	"os"
 	"regexp"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -28,13 +25,6 @@ import (
 )
 
 var errStatusChannelClosed = errors.New("Status channel closed")
-
-const (
-	logUploadDir       = "/var/tmp/titus-executor/tests"
-	logViewerTestImage = "titusoss/titus-logviewer@sha256:750a908c244c3f44b2b7abf1d9297aca859592e02736b3bd48aaebac022a87e5"
-	metatronTestImage  = "titusoss/metatron@sha256:78b21578893c228d006000c03eaa2546c1b1976345b273d31f704823f12d5273"
-	sshdTestImage      = "titusoss/titus-sshd@sha256:6f6f89250771a50e13d5a3559712defc256c37b144ca22e46c69f35f06d848a0"
-)
 
 // Process describes what runs inside the container
 type Process struct {
@@ -75,10 +65,6 @@ type JobInput struct {
 	KillWaitSeconds uint32
 	// Tty attaches a tty to the container via a passthrough attribute
 	Tty bool
-	// LogViewerEnabled enables running with the logviewer system service container
-	LogViewerEnabled bool
-	// MetatronEnabled enables running with the metatron system service container
-	MetatronEnabled bool
 	// Mem sets the memory resource attribute in MiB
 	Mem *int64
 	// ShmSize sets the shared memory size of `/dev/shm` in MiB
@@ -103,12 +89,7 @@ func (jobRunResponse *JobRunResponse) WaitForSuccess() bool {
 	if err != nil {
 		return false
 	}
-	res := status == "TASK_FINISHED"
-	if !res {
-		jobRunResponse.logContainerStdErrOut()
-	}
-
-	return res
+	return status == "TASK_FINISHED"
 }
 
 // WaitForFailure blocks on the jobs completion and returns true
@@ -118,12 +99,7 @@ func (jobRunResponse *JobRunResponse) WaitForFailure() bool {
 	if err != nil {
 		return false
 	}
-	res := status == "TASK_FAILED"
-	if !res {
-		jobRunResponse.logContainerStdErrOut()
-	}
-
-	return res
+	return status == "TASK_FAILED"
 }
 
 // WaitForFailureWithStatus blocks until the job is finished, or ctx expires, and returns no error if the exit status
@@ -201,77 +177,6 @@ func (jobRunResponse *JobRunResponse) ListenForRunning() <-chan bool {
 	return notify
 }
 
-// logContainerStdErrOut logs the contents of the container's stderr / stdout
-func (jobRunResponse *JobRunResponse) logContainerStdErrOut() {
-	logNames := []string{
-		"stderr",
-		"stdout",
-	}
-
-	for _, l := range logNames {
-		lp := fmt.Sprintf("%s/titan/mainvpc/logs/%s/%s", logUploadDir, jobRunResponse.TaskID, l)
-		_, err := os.Stat(lp)
-		if os.IsNotExist(err) {
-			log.Infof("logContainerStdErrOut: file does not exist: %s", lp)
-			continue
-		}
-
-		contents, err := ioutil.ReadFile(lp)
-		if err != nil {
-			log.WithError(err).Errorf("Error reading file '%s': %+v", lp, err)
-			continue
-		}
-
-		log.Infof("logContainerStdErrOut: %s: '%s'", l, contents)
-	}
-
-}
-
-// GenerateConfigs generates test configs
-func GenerateConfigs(jobInput *JobInput) (*config.Config, *docker.Config) {
-	configArgs := []string{"--copy-uploader", logUploadDir}
-
-	logViewerEnabled := false
-	metatronEnabled := false
-	if jobInput != nil {
-		if jobInput.LogViewerEnabled {
-			logViewerEnabled = true
-		}
-		if jobInput.MetatronEnabled {
-			metatronEnabled = true
-		}
-	}
-
-	// GenerateConfiguration() doesn't actually update the config it generates based
-	// on these flags: this is just to test command-line parsing
-	configArgs = append(configArgs,
-		"--container-logviewer", strconv.FormatBool(logViewerEnabled),
-		"--logviewer-service-image", logViewerTestImage,
-		"--metatron-enabled", strconv.FormatBool(metatronEnabled),
-		"--metatron-service-image", metatronTestImage,
-		"--container-sshd", "true",
-		"--sshd-service-image", sshdTestImage)
-
-	cfg, err := config.GenerateConfiguration(configArgs)
-	if err != nil {
-		panic(err)
-	}
-
-	cfg.ContainerLogViewer = logViewerEnabled
-	cfg.LogViewerServiceImage = logViewerTestImage
-	cfg.MetatronEnabled = metatronEnabled
-	cfg.MetatronServiceImage = metatronTestImage
-	cfg.SSHDServiceImage = sshdTestImage
-
-	dockerCfg, err := docker.GenerateConfiguration(nil)
-	if err != nil {
-		panic(err)
-	}
-
-	log.Infof("GenerateConfigs: configArgs=%+v, cfg=%+v, dockerCfg=%+v", configArgs, cfg, dockerCfg)
-	return cfg, dockerCfg
-}
-
 var r = rand.New(rand.NewSource(999)) // nolint: gosec
 
 // StopExecutor stops a currently running executor
@@ -287,7 +192,15 @@ func (jobRunResponse *JobRunResponse) StopExecutorAsync() {
 
 // StartJob starts a job and returns once the job is started
 func StartJob(t *testing.T, ctx context.Context, jobInput *JobInput) (*JobRunResponse, error) { // nolint: gocyclo,golint
-	cfg, dockerCfg := GenerateConfigs(jobInput)
+	cfg, err := config.GenerateConfiguration([]string{})
+	if err != nil {
+		panic(err)
+	}
+
+	dockerCfg, err := docker.GenerateConfiguration(nil)
+	if err != nil {
+		panic(err)
+	}
 
 	log.SetLevel(log.DebugLevel)
 	// Create an executor
@@ -318,12 +231,6 @@ func StartJob(t *testing.T, ctx context.Context, jobInput *JobInput) (*JobRunRes
 		metadataserverTypes.EC2IPv4EnvVarName: "1.2.3.4",
 	}
 
-	if jobInput.MetatronEnabled {
-		env[metadataserverTypes.TitusMetatronVariableName] = "true"
-	} else {
-		env[metadataserverTypes.TitusMetatronVariableName] = "false"
-	}
-
 	// range over nil is safe
 	for k, v := range jobInput.Environment {
 		env[k] = v
@@ -342,9 +249,6 @@ func StartJob(t *testing.T, ctx context.Context, jobInput *JobInput) (*JobRunRes
 		Capabilities:      jobInput.Capabilities,
 		TitusProvidedEnv:  env,
 		IgnoreLaunchGuard: protobuf.Bool(jobInput.IgnoreLaunchGuard),
-		PassthroughAttributes: map[string]string{
-			runtimeTypes.LogKeepLocalFileAfterUploadParam: "true",
-		},
 	}
 
 	if p := jobInput.Process; p != nil {
@@ -368,12 +272,6 @@ func StartJob(t *testing.T, ctx context.Context, jobInput *JobInput) (*JobRunRes
 		ci.PassthroughAttributes["titusParameter.agent.ttyEnabled"] = "true"
 	}
 
-	if jobInput.MetatronEnabled {
-		ci.MetatronCreds = &titus.ContainerInfo_MetatronCreds{
-			AppMetadata: protobuf.String("fake-metatron-app"),
-			MetadataSig: protobuf.String("fake-metatron-sig"),
-		}
-	}
 	if jobInput.KillWaitSeconds > 0 {
 		ci.KillWaitSeconds = protobuf.Uint32(jobInput.KillWaitSeconds)
 	}

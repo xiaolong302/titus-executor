@@ -795,14 +795,13 @@ func cleanContainerName(prefix string, imageName string) string {
 }
 
 // createVolumeContainerFunc returns a function (suitable for running in a Goroutine) that will create a volume container. See createVolumeContainer() below.
-func (r *DockerRuntime) createVolumeContainerFunc(sCfg *runtimeTypes.SidecarContainerConfig, containerName *string) func(ctx context.Context) error {
+func (r *DockerRuntime) createVolumeContainerFunc(image, containerName string) func(ctx context.Context) error {
 	return func(ctx context.Context) error {
-		logger.G(ctx).WithField("serviceName", sCfg.ServiceName).Infof("Setting up container")
+		logger.G(ctx).WithField("containerName", containerName).Infof("Setting up container")
 		cfg := &container.Config{
-			Hostname:   fmt.Sprintf("titus-%s", sCfg.ServiceName),
-			Volumes:    sCfg.Volumes,
+			Hostname:   containerName,
 			Entrypoint: []string{"/bin/bash"},
-			Image:      sCfg.Image,
+			Image:      image,
 		}
 		hostConfig := &container.HostConfig{
 			NetworkMode: "none",
@@ -810,7 +809,7 @@ func (r *DockerRuntime) createVolumeContainerFunc(sCfg *runtimeTypes.SidecarCont
 
 		createErr := r.createVolumeContainer(ctx, containerName, cfg, hostConfig)
 		if createErr != nil {
-			return errors.Wrapf(createErr, "Unable to setup %s container", sCfg.ServiceName)
+			return errors.Wrapf(createErr, "Unable to setup %s container", containerName)
 		}
 
 		return nil
@@ -818,7 +817,7 @@ func (r *DockerRuntime) createVolumeContainerFunc(sCfg *runtimeTypes.SidecarCont
 }
 
 // createVolumeContainer creates a container to be used as a source for volumes to be mounted via VolumesFrom
-func (r *DockerRuntime) createVolumeContainer(ctx context.Context, containerName *string, cfg *container.Config, hostConfig *container.HostConfig) error { // nolint: gocyclo
+func (r *DockerRuntime) createVolumeContainer(ctx context.Context, containerName string, cfg *container.Config, hostConfig *container.HostConfig) error { // nolint: gocyclo
 	image := cfg.Image
 	tmpImageInfo, err := imageExists(ctx, r.client, image)
 	if err != nil {
@@ -847,11 +846,8 @@ func (r *DockerRuntime) createVolumeContainer(ctx context.Context, containerName
 		logger.G(ctx).Info("createVolumeContainer: image exists: not pulling image")
 	}
 
-	*containerName = cleanContainerName(cfg.Hostname, image)
-	ctx = logger.WithField(ctx, "containerName", *containerName)
-
 	// Check if this container exists, if not create it.
-	_, err = r.client.ContainerInspect(ctx, *containerName)
+	_, err = r.client.ContainerInspect(ctx, containerName)
 	if err == nil {
 		logger.G(ctx).Info("createVolumeContainer: container exists: not creating")
 		return nil
@@ -864,7 +860,7 @@ func (r *DockerRuntime) createVolumeContainer(ctx context.Context, containerName
 	logger.G(ctx).Info("createVolumeContainer: creating container")
 	// We don't check the error here, because there's no way
 	// to prevent us from accidentally calling this concurrently
-	_, tmpErr := r.client.ContainerCreate(ctx, cfg, hostConfig, nil, *containerName)
+	_, tmpErr := r.client.ContainerCreate(ctx, cfg, hostConfig, nil, containerName)
 	if tmpErr == nil {
 		return nil
 	}
@@ -875,7 +871,7 @@ func (r *DockerRuntime) createVolumeContainer(ctx context.Context, containerName
 	for {
 		select {
 		case <-timer.C:
-			_, err = r.client.ContainerInspect(ctx, *containerName)
+			_, err = r.client.ContainerInspect(ctx, containerName)
 			if err == nil {
 				return nil
 			}
@@ -887,13 +883,6 @@ func (r *DockerRuntime) createVolumeContainer(ctx context.Context, containerName
 
 // Prepare host state (pull image, create fs, create container, etc...) for the container
 func (r *DockerRuntime) Prepare(parentCtx context.Context) error { // nolint: gocyclo
-	var logViewerContainerName string
-	var abmetrixContainerName string
-	var metatronContainerName string
-	var serviceMeshContainerName string
-	var sshdContainerName string
-	var spectatordContainerName string
-	var atlasdContainerName string
 	var volumeContainers []string
 
 	parentCtx = logger.WithField(parentCtx, "taskID", r.c.TaskID())
@@ -1125,12 +1114,6 @@ func (r *DockerRuntime) pushEnvironment(c runtimeTypes.Container, imageInfo *typ
 		Typeflag: tar.TypeDir,
 	}); err != nil {
 		log.Fatal(err)
-	}
-
-	if r.cfg.ContainerSSHD {
-		if err := addContainerSSHDConfig(c, tw, r.cfg); err != nil {
-			return err
-		}
 	}
 
 	for _, efsMount := range c.EfsConfigInfo() {
