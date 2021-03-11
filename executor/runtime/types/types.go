@@ -3,14 +3,12 @@ package types
 import (
 	"context"
 	"fmt"
-	"regexp"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/Netflix/titus-executor/api/netflix/titus"
 	"github.com/Netflix/titus-executor/config"
-	"github.com/Netflix/titus-executor/uploader"
 	vpcTypes "github.com/Netflix/titus-executor/vpc/types"
 	"google.golang.org/protobuf/proto"
 
@@ -146,12 +144,6 @@ type Container interface {
 	KillWaitSeconds() *uint32
 	KvmEnabled() bool
 	Labels() map[string]string
-	LogKeepLocalFileAfterUpload() bool
-	LogStdioCheckInterval() *time.Duration
-	LogUploadCheckInterval() *time.Duration
-	LogUploaderConfig() *uploader.Config
-	LogUploadRegexp() *regexp.Regexp
-	LogUploadThresholdTime() *time.Duration
 	MetatronCreds() *titus.ContainerInfo_MetatronCreds
 	NormalizedENIIndex() *int
 	OomScoreAdj() *int32
@@ -160,10 +152,7 @@ type Container interface {
 	Resources() *Resources
 	RequireIMDSToken() *string
 	Runtime() string
-	SeccompAgentEnabledForNetSyscalls() bool
-	SeccompAgentEnabledForPerfSyscalls() bool
 	SecurityGroupIDs() *[]string
-	ServiceMeshEnabled() bool
 	SetEnv(string, string)
 	SetEnvs(env map[string]string)
 	SetGPUInfo(GPUContainer)
@@ -171,13 +160,11 @@ type Container interface {
 	SetSystemD(bool)
 	SetVPCAllocation(*vpcTypes.HybridAllocation)
 	ShmSizeMiB() *uint32
-	SidecarConfigs() (map[string]*SidecarContainerConfig, error)
 	SignedAddressAllocationUUID() *string
 	SortedEnvArray() []string
 	SubnetIDs() *string
 	TaskID() string
 	TTYEnabled() bool
-	UploadDir(string) string
 	UseJumboFrames() bool
 	VPCAllocation() *vpcTypes.HybridAllocation
 	VPCAccountID() *string

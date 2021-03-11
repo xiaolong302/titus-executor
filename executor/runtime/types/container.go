@@ -3,26 +3,19 @@ package types
 import (
 	"fmt"
 	"os"
-	"path"
-	"path/filepath"
-	"regexp"
 	"sort"
 	"strconv"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/Netflix/titus-executor/api/netflix/titus"
 	"github.com/Netflix/titus-executor/config"
 	"github.com/Netflix/titus-executor/executor/dockershellparser"
 	metadataserverTypes "github.com/Netflix/titus-executor/metadataserver/types"
 	"github.com/Netflix/titus-executor/models"
-	"github.com/Netflix/titus-executor/uploader"
 	vpcTypes "github.com/Netflix/titus-executor/vpc/types"
 	podCommon "github.com/Netflix/titus-kube-common/pod"
 	"github.com/aws/aws-sdk-go/aws/arn"
-	"github.com/pkg/errors"
-	log "github.com/sirupsen/logrus"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/kubernetes/pkg/util/maps"
 	ptr "k8s.io/utils/pointer"
@@ -45,22 +38,11 @@ const (
 	titusJobIDKey            = "TITUS_JOB_ID"
 
 	// Passthrough params
-	s3WriterRoleParam                       = "titusParameter.agent.log.s3WriterRole"
-	s3BucketNameParam                       = "titusParameter.agent.log.s3BucketName"
-	s3PathPrefixParam                       = "titusParameter.agent.log.s3PathPrefix"
 	hostnameStyleParam                      = "titusParameter.agent.hostnameStyle"
-	logUploadThresholdTimeParam             = "titusParameter.agent.log.uploadThresholdTime"
-	logUploadCheckIntervalParam             = "titusParameter.agent.log.uploadCheckInterval"
-	logStdioCheckIntervalParam              = "titusParameter.agent.log.stdioCheckInterval"
-	LogKeepLocalFileAfterUploadParam        = "titusParameter.agent.log.keepLocalFileAfterUpload"
 	FuseEnabledParam                        = "titusParameter.agent.fuseEnabled"
 	KvmEnabledParam                         = "titusParameter.agent.kvmEnabled"
-	SeccompAgentEnabledForNetSyscallsParam  = "titusParameter.agent.seccompAgentEnabledForNetSyscalls"
-	SeccompAgentEnabledForPerfSyscallsParam = "titusParameter.agent.seccompAgentEnabledForPerfSyscalls"
 	assignIPv6AddressParam                  = "titusParameter.agent.assignIPv6Address"
 	batchPriorityParam                      = "titusParameter.agent.batchPriority"
-	serviceMeshEnabledParam                 = "titusParameter.agent.service.serviceMesh.enabled"
-	serviceMeshContainerParam               = "titusParameter.agent.service.serviceMesh.container"
 	ttyEnabledParam                         = "titusParameter.agent.ttyEnabled"
 	jumboFrameParam                         = "titusParameter.agent.allowNetworkJumbo"
 	AccountIDParam                          = "titusParameter.agent.accountId"
@@ -71,13 +53,6 @@ const (
 
 	// DefaultOciRuntime is the default oci-compliant runtime used to run system services
 	DefaultOciRuntime = "runc"
-)
-
-var (
-	// log uploading defaults
-	defaultLogUploadThresholdTime = 6 * time.Hour
-	defaultLogUploadCheckInterval = 15 * time.Minute
-	defaultStdioLogCheckInterval  = 1 * time.Minute
 )
 
 // WorkloadType classifies isolation behaviors on resources (e.g. CPU).  The exact implementation details of the
@@ -136,15 +111,6 @@ type TitusInfoContainer struct {
 	vpcAllocation      vpcTypes.HybridAllocation
 	vpcAccountID       string
 
-	// Log uploader fields
-	logUploadThresholdTime *time.Duration
-	logUploadCheckInterval *time.Duration
-	logStdioCheckInterval  *time.Duration
-	// LogLocalFileAfterUpload indicates whether or not we should delete log files after uploading them
-	logKeepLocalFileAfterUpload bool
-	logUploadRegexp             *regexp.Regexp
-	logUploaderConfig           uploader.Config
-
 	pod *corev1.Pod
 
 	// GPU devices
@@ -162,10 +128,6 @@ type TitusInfoContainer struct {
 	// KvmEnabled determines whether the container has KVM exposed to it
 	kvmEnabled                         bool
 	requireIMDSToken                   string
-	seccompAgentEnabledForNetSyscalls  bool
-	seccompAgentEnabledForPerfSyscalls bool
-	serviceMeshEnabled                 *bool
-	serviceMeshImage                   string
 	ttyEnabled                         bool
 
 	config config.Config
@@ -225,10 +187,6 @@ func NewContainerWithPod(taskID string, titusInfo *titus.ContainerInfo, resource
 		return nil, err
 	}
 
-	if err := c.updateLogAttributes(titusInfo); err != nil {
-		return nil, err
-	}
-
 	entrypoint, command, err := parseEntryPointAndCommand(titusInfo)
 	if err != nil {
 		return nil, err
@@ -259,10 +217,6 @@ func NewContainerWithPod(taskID string, titusInfo *titus.ContainerInfo, resource
 		{
 			paramName:     elasticIPsParam,
 			containerAttr: &c.elasticIPs,
-		},
-		{
-			paramName:     serviceMeshContainerParam,
-			containerAttr: &c.serviceMeshImage,
 		},
 		{
 			paramName:     batchPriorityParam,
@@ -297,20 +251,8 @@ func NewContainerWithPod(taskID string, titusInfo *titus.ContainerInfo, resource
 			containerAttr: &c.fuseEnabled,
 		},
 		{
-			paramName:     LogKeepLocalFileAfterUploadParam,
-			containerAttr: &c.logKeepLocalFileAfterUpload,
-		},
-		{
 			paramName:     KvmEnabledParam,
 			containerAttr: &c.kvmEnabled,
-		},
-		{
-			paramName:     SeccompAgentEnabledForNetSyscallsParam,
-			containerAttr: &c.seccompAgentEnabledForNetSyscalls,
-		},
-		{
-			paramName:     SeccompAgentEnabledForPerfSyscallsParam,
-			containerAttr: &c.seccompAgentEnabledForPerfSyscalls,
 		},
 		{
 			paramName:     ttyEnabledParam,
@@ -334,16 +276,6 @@ func NewContainerWithPod(taskID string, titusInfo *titus.ContainerInfo, resource
 		if ok {
 			*pt.containerAttr = enabled
 		}
-	}
-
-	// c.serviceMeshEnabled is a bool pointer so that we can distinguish between the
-	// passthrough param deliberately setting it to false versus it being unset
-	svcMeshEnabled, ok, err := getPassthroughBool(titusInfo, serviceMeshEnabledParam)
-	if err != nil {
-		return c, err
-	}
-	if ok {
-		c.serviceMeshEnabled = &svcMeshEnabled
 	}
 
 	// This depends on a number of the other fields being populated, so run it last
@@ -407,58 +339,6 @@ func addProcessLabels(containerInfo *titus.ContainerInfo, labels map[string]stri
 	}
 
 	return labels
-}
-
-func (c *TitusInfoContainer) updateLogAttributes(titusInfo *titus.ContainerInfo) error {
-	logUploadCheckIntervalStr, ok := titusInfo.GetPassthroughAttributes()[logUploadCheckIntervalParam]
-	if ok {
-		dur, err := c.parseLogUploadCheckInterval(logUploadCheckIntervalStr)
-		if err != nil {
-			return err
-		}
-		c.logUploadCheckInterval = &dur
-	}
-
-	logStdioCheckIntervalStr, ok := titusInfo.GetPassthroughAttributes()[logStdioCheckIntervalParam]
-	if ok {
-		dur, err := c.parseLogStdioCheckInterval(logStdioCheckIntervalStr)
-		if err != nil {
-			return err
-		}
-		c.logStdioCheckInterval = &dur
-	}
-
-	logUploadThresholdTimeStr, ok := titusInfo.GetPassthroughAttributes()[logUploadThresholdTimeParam]
-	if ok {
-		dur, err := c.parseLogUploadThresholdTime(logUploadThresholdTimeStr)
-		if err != nil {
-			return err
-		}
-		c.logUploadThresholdTime = &dur
-	}
-
-	uploadRegexpStr := titusInfo.GetLogUploadRegexp()
-	if uploadRegexpStr != "" {
-		uploadRegexp, err := regexp.Compile(uploadRegexpStr)
-		if err != nil {
-			return err
-		}
-		c.logUploadRegexp = uploadRegexp
-	}
-
-	if param, ok := titusInfo.GetPassthroughAttributes()[s3WriterRoleParam]; ok {
-		c.logUploaderConfig.S3WriterRole = param
-	}
-
-	if param, ok := titusInfo.GetPassthroughAttributes()[s3BucketNameParam]; ok {
-		c.logUploaderConfig.S3BucketName = param
-	}
-
-	if param, ok := titusInfo.GetPassthroughAttributes()[s3PathPrefixParam]; ok {
-		c.logUploaderConfig.S3PathPrefix = param
-	}
-
-	return nil
 }
 
 func validateIamRole(iamRole *string) error {
@@ -665,13 +545,6 @@ func (c *TitusInfoContainer) Env() map[string]string {
 
 	env["TITUS_IAM_ROLE"] = ptr.StringPtrDerefOr(c.IamRole(), "")
 
-	if c.config.MetatronEnabled {
-		// When set, the metadata service will return signed identity documents suitable for bootstrapping Metatron
-		env[metadataserverTypes.TitusMetatronVariableName] = True
-	} else {
-		env[metadataserverTypes.TitusMetatronVariableName] = False
-	}
-
 	if c.vpcAllocation.IPV4Address != nil {
 		env[metadataserverTypes.EC2IPv4EnvVarName] = c.vpcAllocation.IPV4Address.Address.Address
 	}
@@ -806,46 +679,6 @@ func (c *TitusInfoContainer) Labels() map[string]string {
 	return c.labels
 }
 
-func (c *TitusInfoContainer) LogKeepLocalFileAfterUpload() bool {
-	return c.logKeepLocalFileAfterUpload
-}
-
-// LogStdioCheckInterval indicates how often we should scan the stdio log files to determine whether they should be uploaded
-func (c *TitusInfoContainer) LogStdioCheckInterval() *time.Duration {
-	if c.logStdioCheckInterval != nil {
-		return c.logStdioCheckInterval
-	}
-
-	return &defaultStdioLogCheckInterval
-}
-
-// LogUploadCheckInterval indicates how often we should scan the continers log directory to see if files need to be uploaded
-func (c *TitusInfoContainer) LogUploadCheckInterval() *time.Duration {
-	if c.logUploadCheckInterval != nil {
-		return c.logUploadCheckInterval
-	}
-
-	return &defaultLogUploadCheckInterval
-}
-
-func (c *TitusInfoContainer) LogUploaderConfig() *uploader.Config {
-	return &c.logUploaderConfig
-}
-
-func (c *TitusInfoContainer) LogUploadRegexp() *regexp.Regexp {
-	return c.logUploadRegexp
-
-}
-
-// LogUploadThresholdTime indicates how long since a file was modified before we should upload it and delete it
-func (c *TitusInfoContainer) LogUploadThresholdTime() *time.Duration {
-	if c.logUploadThresholdTime != nil {
-		return c.logUploadThresholdTime
-	}
-
-	return &defaultLogUploadThresholdTime
-}
-
 func (c *TitusInfoContainer) MetatronCreds() *titus.ContainerInfo_MetatronCreds {
 	return c.titusInfo.GetMetatronCreds()
 }
@@ -898,44 +731,10 @@ func (c *TitusInfoContainer) Runtime() string {
 	return DefaultOciRuntime
 }
 
-func (c *TitusInfoContainer) SeccompAgentEnabledForPerfSyscalls() bool {
-	return c.seccompAgentEnabledForPerfSyscalls
-}
-
-func (c *TitusInfoContainer) SeccompAgentEnabledForNetSyscalls() bool {
-	return c.seccompAgentEnabledForNetSyscalls
-}
-
 func (c *TitusInfoContainer) SecurityGroupIDs() *[]string {
 	networkCfgParams := c.titusInfo.GetNetworkConfigInfo()
 	secGroups := networkCfgParams.GetSecurityGroups()
 	return &secGroups
-}
-
-func (c *TitusInfoContainer) ServiceMeshEnabled() bool {
-	enabled := c.config.ContainerServiceMeshEnabled
-	if c.serviceMeshEnabled != nil {
-		enabled = *c.serviceMeshEnabled
-	}
-
-	if !enabled {
-		return false
-	}
-	_, err := c.serviceMeshImageName()
-	return err == nil
-}
-
-func (c *TitusInfoContainer) serviceMeshImageName() (string, error) {
-	container := c.serviceMeshImage
-	if container == "" {
-		container = c.config.ProxydServiceImage
-	}
-
-	if container == "" {
-		return "no-container", errors.New("Could not determine proxyd image")
-	}
-
-	return container, nil
 }
 
 func (c *TitusInfoContainer) SetEnv(key, value string) {
@@ -1014,17 +813,12 @@ func (c *TitusInfoContainer) TTYEnabled() bool {
 	return c.ttyEnabled
 }
 
-// UploadDir hold files that will by uploaded by log uploaders
-func (c *TitusInfoContainer) UploadDir(namespace string) string {
-	return filepath.Join("titan", c.config.Stack, namespace, c.TaskID())
-}
-
 func (c *TitusInfoContainer) UseJumboFrames() bool {
 	return c.useJumboFrames
 }
 
 func (c *TitusInfoContainer) VPCAccountID() *string {
-	return strPtrOr(c.vpcAccountID, &c.config.SSHAccountID)
+	return strPtrOr(c.vpcAccountID, nil)
 }
 
 func (c *TitusInfoContainer) VPCAllocation() *vpcTypes.HybridAllocation {
@@ -1070,44 +864,4 @@ func parseEntryPointAndCommand(titusInfo *titus.ContainerInfo) ([]string, []stri
 	command := process.GetCommand()
 	entrypoint := process.GetEntrypoint()
 	return entrypoint, command, nil
-}
-
-func (c *TitusInfoContainer) parseLogUploadThresholdTime(logUploadThresholdTimeStr string) (time.Duration, error) {
-	duration, err := time.ParseDuration(logUploadThresholdTimeStr)
-	if err != nil {
-		return 0, errors.Wrap(err, "Cannot parse log upload threshold time")
-	}
-
-	logUploadCheckInterval := c.LogUploadCheckInterval()
-	logStdioCheckInterval := c.LogStdioCheckInterval()
-
-	// Must be at least 2 * logUploadCheckInterval
-	if duration <= *logUploadCheckInterval*2 {
-		return 0, fmt.Errorf("Log upload threshold time %s must be at least 2 * %s, the log upload check interval", duration, logUploadCheckInterval)
-	}
-
-	if duration <= *logStdioCheckInterval*2 {
-		return 0, fmt.Errorf("Log upload threshold time %s must be at least 2 * %s, the stdio check interval", duration, logUploadCheckInterval)
-	}
-
-	return duration, nil
-}
-
-func (c *TitusInfoContainer) parseLogUploadCheckInterval(logUploadCheckIntervalStr string) (time.Duration, error) {
-	duration, err := time.ParseDuration(logUploadCheckIntervalStr)
-	if err != nil {
-		return 0, errors.Wrap(err, "Cannot parse log upload check interval")
-	}
-	if duration < time.Minute {
-		return 0, fmt.Errorf("Log upload check interval '%s' must be at least 1 minute", duration)
-	}
-	return duration, nil
-}
-
-func (c *TitusInfoContainer) parseLogStdioCheckInterval(logStdioCheckIntervalStr string) (time.Duration, error) {
-	duration, err := time.ParseDuration(logStdioCheckIntervalStr)
-	if err != nil {
-		return 0, errors.Wrap(err, "Cannot parse log stdio check interval")
-	}
-	return duration, nil
 }

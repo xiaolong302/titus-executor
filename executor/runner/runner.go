@@ -11,9 +11,7 @@ import (
 	"github.com/Netflix/titus-executor/config"
 	titusdriver "github.com/Netflix/titus-executor/executor/drivers"
 	runtimeTypes "github.com/Netflix/titus-executor/executor/runtime/types"
-	"github.com/Netflix/titus-executor/filesystems"
 	"github.com/Netflix/titus-executor/logger"
-	"github.com/Netflix/titus-executor/uploader"
 	multierror "github.com/hashicorp/go-multierror"
 	corev1 "k8s.io/api/core/v1"
 )

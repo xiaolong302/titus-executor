@@ -60,19 +60,9 @@ func NewConfig() (*Config, []cli.Flag) {
 			"AWS_METADATA_SERVICE_TIMEOUT=5",
 			"AWS_METADATA_SERVICE_NUM_ATTEMPTS=3",
 		},
-		ContainerSSHDUsers: []string{
-			"root",
-			"nfsuper",
-			"nfbasic",
-		},
 	}
 
 	flags := []cli.Flag{
-		cli.BoolTFlag{
-			Name:        "metatron-enabled",
-			EnvVar:      "METATRON_ENABLED",
-			Destination: &cfg.MetatronEnabled,
-		},
 		cli.BoolFlag{
 			Name:        "privileged-containers-enabled",
 			EnvVar:      "PRIVILEGED_CONTAINERS_ENABLED",

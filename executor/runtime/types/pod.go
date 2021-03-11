@@ -2,11 +2,8 @@ package types
 
 import (
 	"encoding/base64"
-	"regexp"
-	"time"
 
 	"github.com/Netflix/titus-executor/api/netflix/titus"
-	"github.com/Netflix/titus-executor/uploader"
 	vpcTypes "github.com/Netflix/titus-executor/vpc/types"
 	"github.com/golang/protobuf/proto" // nolint: staticcheck
 	"github.com/pkg/errors"
@@ -195,30 +192,6 @@ func (c *PodContainer) Labels() map[string]string {
 	return map[string]string{}
 }
 
-func (c *PodContainer) LogKeepLocalFileAfterUpload() bool {
-	return false
-}
-
-func (c *PodContainer) LogStdioCheckInterval() *time.Duration {
-	return nil
-}
-
-func (c *PodContainer) LogUploadCheckInterval() *time.Duration {
-	return nil
-}
-
-func (c *PodContainer) LogUploaderConfig() *uploader.Config {
-	return nil
-}
-
-func (c *PodContainer) LogUploadRegexp() *regexp.Regexp {
-	return nil
-}
-
-func (c *PodContainer) LogUploadThresholdTime() *time.Duration {
-	return nil
-}
-
 func (c *PodContainer) MetatronCreds() *titus.ContainerInfo_MetatronCreds {
 	return nil
 }
@@ -251,20 +224,8 @@ func (c *PodContainer) Runtime() string {
 	return ""
 }
 
-func (c *PodContainer) SeccompAgentEnabledForNetSyscalls() bool {
-	return false
-}
-
-func (c *PodContainer) SeccompAgentEnabledForPerfSyscalls() bool {
-	return false
-}
-
 func (c *PodContainer) SecurityGroupIDs() *[]string {
 	return nil
-}
-
-func (c *PodContainer) ServiceMeshEnabled() bool {
-	return false
 }
 
 func (c *PodContainer) SetEnv(string, string) {
@@ -289,10 +250,6 @@ func (c *PodContainer) ShmSizeMiB() *uint32 {
 	return nil
 }
 
-func (c *PodContainer) SidecarConfigs() (map[string]*SidecarContainerConfig, error) {
-	return map[string]*SidecarContainerConfig{}, nil
-}
-
 func (c *PodContainer) SignedAddressAllocationUUID() *string {
 	return nil
 }
@@ -311,10 +268,6 @@ func (c *PodContainer) TaskID() string {
 
 func (c *PodContainer) TTYEnabled() bool {
 	return false
-}
-
-func (c *PodContainer) UploadDir(string) string {
-	return ""
 }
 
 func (c *PodContainer) UseJumboFrames() bool {
