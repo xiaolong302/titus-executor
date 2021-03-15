@@ -53,10 +53,6 @@ var systemServices = []string{
 	"titus-metadata-proxy",
 }
 
-var systemVolumes = map[string]string{
-	"titus-sidecar:latest.release": "/titus/sidecar",
-}
-
 func getPeerInfo(unixConn *net.UnixConn) (ucred, error) {
 	unixConnFile, err := unixConn.File()
 	if err != nil {
