@@ -11,6 +11,7 @@ import (
 	"github.com/Netflix/titus-executor/config"
 	vpcTypes "github.com/Netflix/titus-executor/vpc/types"
 	"google.golang.org/protobuf/proto"
+	corev1 "k8s.io/api/core/v1"
 
 	// The purpose of this is to tell gometalinter to keep vendoring this package
 	_ "github.com/Netflix/titus-api-definitions/src/main/proto/netflix/titus"
@@ -325,7 +326,7 @@ type Details struct {
 	NetworkConfiguration *NetworkConfigurationDetails
 }
 
-type ContainerRuntimeProvider func(ctx context.Context, c Container, startTime time.Time) (Runtime, error)
+type ContainerRuntimeProvider func(ctx context.Context, c Container, p *corev1.Pod, startTime time.Time) (Runtime, error)
 
 // Runtime is the containerization engine
 type Runtime interface {

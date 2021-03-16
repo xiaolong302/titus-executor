@@ -37,6 +37,7 @@ type Runner struct {
 	config        config.Config
 
 	container runtimeTypes.Container
+	pod       *corev1.Pod
 
 	// Close this channel to start killing the container
 	killOnce    sync.Once
@@ -71,9 +72,10 @@ func StartTaskWithRuntime(ctx context.Context, task Task, m metrics.Reporter, rp
 		UpdatesChan:   make(chan Update, 10),
 		StoppedChan:   make(chan struct{}),
 		container:     container,
+		pod:           task.Pod,
 	}
 
-	rt, err := rp(ctx, runner.container, startTime)
+	rt, err := rp(ctx, runner.container, runner.pod, startTime)
 	if err != nil {
 		return nil, err
 	}

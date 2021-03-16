@@ -42,6 +42,7 @@ import (
 	"go.opencensus.io/trace"
 	"golang.org/x/sync/errgroup"
 	"golang.org/x/sys/unix"
+	corev1 "k8s.io/api/core/v1"
 )
 
 var (
@@ -117,6 +118,7 @@ type DockerRuntime struct { // nolint: golint
 
 	// To be set when initializing a specific instance of the runtime provider
 	c          runtimeTypes.Container
+	p          *corev1.Pod
 	startTime  time.Time
 	gpuManager runtimeTypes.GPUManager
 }
@@ -154,7 +156,7 @@ func NewDockerRuntime(ctx context.Context, m metrics.Reporter, dockerCfg Config,
 	awsRegion := os.Getenv("EC2_REGION")
 	storageOptEnabled := shouldEnableStorageOpts(info)
 
-	runtimeFunc := func(ctx context.Context, c runtimeTypes.Container, startTime time.Time) (runtimeTypes.Runtime, error) {
+	runtimeFunc := func(ctx context.Context, c runtimeTypes.Container, p *corev1.Pod, startTime time.Time) (runtimeTypes.Runtime, error) {
 		dockerRuntime := &DockerRuntime{
 			pidCgroupPath:     pidCgroupPath,
 			awsRegion:         awsRegion,
@@ -306,6 +308,7 @@ func stableSecret() string {
 	}
 	return net.IP(ipBuf).String()
 }
+
 func maybeAddOptimisticDad(sysctl map[string]string) {
 	if unix.Access("/proc/sys/net/ipv6/conf/default/use_optimistic", 0) == nil {
 		sysctl["net.ipv6.conf.default.use_optimistic"] = "1"
@@ -879,6 +882,11 @@ func (r *DockerRuntime) Prepare(parentCtx context.Context) error { // nolint: go
 		return nil
 	})
 
+	for _, c := range r.p.Spec.Containers {
+		group.Go(r.createVolumeContainerFunc(c.Image, c.Name))
+		volumeContainers = append(volumeContainers, c.Name)
+	}
+
 	if r.cfg.UseNewNetworkDriver {
 		group.Go(func(ctx context.Context) error {
 			prepareNetworkStartTime := time.Now()
@@ -1193,7 +1201,7 @@ func (r *DockerRuntime) waitForTini(ctx context.Context, listener *net.UnixListe
 	return logDir, err
 }
 
-// Start runs an already created container. A watcher is created that monitors container state. The Status Message Channel is ONLY
+// Start runs an already created container.A watcher is created that monitors container state.The Status Message Channel is ONLY
 // valid if err == nil, otherwise it will block indefinitely.
 func (r *DockerRuntime) Start(parentCtx context.Context) (string, *runtimeTypes.Details, <-chan runtimeTypes.StatusMessage, error) {
 	ctx, cancel := context.WithTimeout(parentCtx, r.dockerCfg.startTimeout)

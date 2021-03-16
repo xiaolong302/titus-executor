@@ -16,6 +16,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	corev1 "k8s.io/api/core/v1"
 )
 
 var (
@@ -33,6 +34,7 @@ const (
 // runtimeMock implements the Runtime interface
 type runtimeMock struct {
 	c runtimeTypes.Container
+	p *corev1.Pod
 
 	t   *testing.T
 	ctx context.Context
@@ -163,7 +165,8 @@ func TestSendTerminalStatusUntilCleanup(t *testing.T) {
 		Disk:      1,
 		Network:   1,
 	}
-	executor, err := StartTaskWithRuntime(ctx, task, metrics.Discard, func(ctx context.Context, c runtimeTypes.Container, startTime time.Time) (runtimeTypes.Runtime, error) {
+	executor, err := StartTaskWithRuntime(ctx, task, metrics.Discard, func(ctx context.Context, c runtimeTypes.Container, p *corev1.Pod, startTime time.Time) (runtimeTypes.Runtime, error) {
+		r.p = p
 		r.c = c
 		return r, nil
 	}, config.Config{})
@@ -243,7 +246,8 @@ func TestCancelDuringPrepare(t *testing.T) { // nolint: gocyclo
 		Disk:      1,
 		Network:   1,
 	}
-	executor, err := StartTaskWithRuntime(ctx, task, metrics.Discard, func(ctx context.Context, c runtimeTypes.Container, startTime time.Time) (runtimeTypes.Runtime, error) {
+	executor, err := StartTaskWithRuntime(ctx, task, metrics.Discard, func(ctx context.Context, c runtimeTypes.Container, p *corev1.Pod, startTime time.Time) (runtimeTypes.Runtime, error) {
+		r.p = p
 		r.c = c
 		return r, nil
 	}, config.Config{})
@@ -335,7 +339,8 @@ func TestSendRedundantStatusMessage(t *testing.T) { // nolint: gocyclo
 		Disk:      1,
 		Network:   1,
 	}
-	executor, err := StartTaskWithRuntime(ctx, task, metrics.Discard, func(ctx context.Context, c runtimeTypes.Container, startTime time.Time) (runtimeTypes.Runtime, error) {
+	executor, err := StartTaskWithRuntime(ctx, task, metrics.Discard, func(ctx context.Context, c runtimeTypes.Container, p *corev1.Pod, startTime time.Time) (runtimeTypes.Runtime, error) {
+		r.p = p
 		r.c = c
 		return r, nil
 	}, config.Config{})

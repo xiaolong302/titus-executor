@@ -205,7 +205,7 @@ func dockerImageRemove(t *testing.T, imgName string) {
 	runtimeMaker, err := docker.NewDockerRuntime(ctx, metrics.Discard, *dockerCfg, *cfg)
 	require.NoError(t, err, "Error creating docker runtime maker")
 
-	rt, err := runtimeMaker(ctx, nil, time.Time{})
+	rt, err := runtimeMaker(ctx, nil, nil, time.Time{})
 	require.NoError(t, err, "Error creating docker runtime")
 
 	drt, ok := rt.(*docker.DockerRuntime)
@@ -233,7 +233,7 @@ func dockerPull(t *testing.T, imgName string, imgDigest string) (*dockerTypes.Im
 	runtimeMaker, err := docker.NewDockerRuntime(ctx, metrics.Discard, *dockerCfg, *cfg)
 	require.NoError(t, err, "Error creating docker runtime maker")
 
-	rt, err := runtimeMaker(ctx, nil, time.Time{})
+	rt, err := runtimeMaker(ctx, nil, nil, time.Time{})
 	require.NoError(t, err, "Error creating docker runtime")
 
 	drt, ok := rt.(*docker.DockerRuntime)
