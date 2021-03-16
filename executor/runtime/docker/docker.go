@@ -756,7 +756,10 @@ func (r *DockerRuntime) createVolumeContainerFunc(image, containerName string) f
 	return func(ctx context.Context) error {
 		logger.G(ctx).WithField("containerName", containerName).Infof("Setting up container")
 		cfg := &container.Config{
-			Hostname:   containerName,
+			Hostname: containerName,
+			Volumes: map[string]struct{}{
+				"/containers/" + containerName: {},
+			},
 			Entrypoint: []string{"/bin/bash"},
 			Image:      image,
 		}
