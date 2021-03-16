@@ -962,7 +962,7 @@ func (r *DockerRuntime) Prepare(parentCtx context.Context) error { // nolint: go
 	}
 	logger.G(ctx).Info("Titus Configuration pushed")
 
-	err = r.pushEnvironment(r.c, myImageInfo)
+	err = r.pushPod(r.c, r.p, myImageInfo)
 	if err != nil {
 		goto error
 	}
@@ -1036,69 +1036,28 @@ func (r *DockerRuntime) logDir(c runtimeTypes.Container) string {
 	return filepath.Join(netflixLoggerTempDir(r.cfg, c), "logs")
 }
 
-func (r *DockerRuntime) pushEnvironment(c runtimeTypes.Container, imageInfo *types.ImageInspect) error { // nolint: gocyclo
-	var envTemplateBuf, tarBuf bytes.Buffer
+func (r *DockerRuntime) pushPod(c runtimeTypes.Container, p *corev1.Pod, imageInfo *types.ImageInspect) error { // nolint: gocyclo
+	var podFileBuf, tarBuf bytes.Buffer
 
-	//myImageInfo.Config.Env
-
-	if err := executeEnvFileTemplate(c.Env(), imageInfo, &envTemplateBuf); err != nil {
+	json, err := json.MarshalIndent(p, "", "  ")
+	if err != nil {
 		return err
 	}
+	podFileBuf.Write(json)
 
 	// Create a new tar archive.
 	tw := tar.NewWriter(&tarBuf)
 
-	if err := tw.WriteHeader(&tar.Header{
-		Name:     "data",
-		Mode:     0755,
-		Typeflag: tar.TypeDir,
-	}); err != nil {
-		log.Fatal(err)
-	}
-
-	if err := tw.WriteHeader(&tar.Header{
-		Name:     "logs",
-		Mode:     0777,
-		Typeflag: tar.TypeDir,
-	}); err != nil {
-		log.Fatal(err)
-	}
-
-	if err := tw.WriteHeader(&tar.Header{
-		Name:     "titus",
-		Mode:     0755,
-		Typeflag: tar.TypeDir,
-	}); err != nil {
-		log.Fatal(err)
-	}
-
-	for _, efsMount := range c.EfsConfigInfo() {
-		mp := filepath.Clean(efsMount.GetMountPoint())
-		mp = strings.TrimPrefix(mp, "/")
-		if err := tw.WriteHeader(&tar.Header{
-			Name:     mp,
-			Mode:     0777,
-			Typeflag: tar.TypeDir,
-		}); err != nil {
-			log.Fatal(err)
-		}
-	}
-
-	path := "etc/profile.d/netflix_environment.sh"
-	if version, ok := imageInfo.Config.Labels["nflxenv"]; ok && strings.HasPrefix(version, "1.") {
-		path = "etc/nflx/base-environment.d/200titus"
-	}
-
 	hdr := &tar.Header{
-		Name: path,
+		Name: "/pod.json",
 		Mode: 0644,
-		Size: int64(envTemplateBuf.Len()),
+		Size: int64(podFileBuf.Len()),
 	}
 
 	if err := tw.WriteHeader(hdr); err != nil {
 		log.Fatalln(err)
 	}
-	if _, err := tw.Write(envTemplateBuf.Bytes()); err != nil {
+	if _, err := tw.Write(podFileBuf.Bytes()); err != nil {
 		log.Fatalln(err)
 	}
 	// Make sure to check the error on Close.
