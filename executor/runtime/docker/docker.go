@@ -13,6 +13,7 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"regexp"
 	"strconv"
@@ -531,41 +532,6 @@ func (r *DockerRuntime) DockerImageRemove(ctx context.Context, imgName string) e
 	return err
 }
 
-// DockerPull returns an ImageInspect pointer if the image was cached, and we didn't need to pull, nil otherwise
-func (r *DockerRuntime) DockerPull(ctx context.Context, c runtimeTypes.Container) (*types.ImageInspect, error) {
-	imgName := c.QualifiedImageName()
-	logger := log.WithField("imageName", imgName)
-
-	if c.ImageDigest() != nil {
-		// Only check for a cached image if a digest was specified: image tags are mutable
-		imgInfo, err := imageExists(ctx, r.client, imgName)
-		if err != nil {
-			logger.WithError(err).Errorf("DockerPull: error inspecting image")
-
-			// Can get "invalid reference format" error: return "not found" to be consistent with pull by tag
-			if isBadImageErr(err) {
-				return nil, &runtimeTypes.RegistryImageNotFoundError{Reason: err}
-			}
-			return nil, err
-		}
-
-		if imgInfo != nil {
-			logger.Info("DockerPull: image exists: not pulling image")
-			r.metrics.Counter("titus.executor.dockerImageCachedPulls", 1, nil)
-			return imgInfo, nil
-		}
-	}
-
-	r.metrics.Counter("titus.executor.dockerImagePulls", 1, nil)
-	logger.Infof("DockerPull: pulling image")
-	pullStartTime := time.Now()
-	if err := pullWithRetries(ctx, r.metrics, r.client, c.QualifiedImageName(), doDockerPull); err != nil {
-		return nil, err
-	}
-	r.metrics.Timer("titus.executor.imagePullTime", time.Since(pullStartTime), c.ImageTagForMetrics())
-	return nil, nil
-}
-
 func vpcToolPath() string {
 	myPath := os.Args[0]
 	ret, err := filepath.Abs(filepath.Join(filepath.Dir(myPath), "titus-vpc-tool"))
@@ -862,27 +828,11 @@ func (r *DockerRuntime) Prepare(parentCtx context.Context) error { // nolint: go
 	group := groupWithContext(ctx)
 
 	group.Go(func(ctx context.Context) error {
-		imageInfo, pullErr := r.DockerPull(ctx, r.c)
-		if pullErr != nil {
-			return pullErr
-		}
+		imgName := path.Join(r.cfg.DockerRegistry, r.cfg.ExecutorImage)
+		logger := log.WithField("imageName", imgName)
 
-		if imageInfo == nil {
-			inspected, _, inspectErr := r.client.ImageInspectWithRaw(ctx, r.c.QualifiedImageName())
-			if inspectErr != nil {
-				logger.G(ctx).WithField("imageName", r.c.QualifiedImageName()).WithError(inspectErr).Error("Error inspecting docker image")
-				return inspectErr
-			}
-			imageInfo = &inspected
-		}
-
-		size = r.reportDockerImageSizeMetric(r.c, imageInfo)
-		if !r.hasEntrypointOrCmd(imageInfo, r.c) {
-			return NoEntrypointError
-		}
-
-		myImageInfo = imageInfo
-		return nil
+		logger.Infof("DockerPull: pulling image")
+		return pullWithRetries(ctx, r.metrics, r.client, imgName, doDockerPull)
 	})
 
 	for _, c := range r.p.Spec.Containers {
@@ -1843,19 +1793,6 @@ func (r *DockerRuntime) Cleanup(ctx context.Context) error {
 	}
 
 	return errs.ErrorOrNil()
-}
-
-// reportDockerImageSizeMetric reports a metric that represents the container image's size
-func (r *DockerRuntime) reportDockerImageSizeMetric(c runtimeTypes.Container, imageInfo *types.ImageInspect) int64 {
-	// reporting image size in KB
-	r.metrics.Gauge("titus.executor.dockerImageSize", int(imageInfo.Size/KB), c.ImageTagForMetrics())
-	return imageInfo.Size
-}
-
-// hasEntrypointOrCmd checks if the image has a an entrypoint, or if we were passed one
-func (r *DockerRuntime) hasEntrypointOrCmd(imageInfo *types.ImageInspect, c runtimeTypes.Container) bool {
-	entrypoint, cmd := c.Process()
-	return len(entrypoint) > 0 || len(cmd) > 0 || len(imageInfo.Config.Entrypoint) > 0 || len(imageInfo.Config.Cmd) > 0
 }
 
 func shouldClose(c io.Closer) {

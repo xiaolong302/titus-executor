@@ -30,6 +30,9 @@ type Config struct {
 	DockerHost     string
 	DockerRegistry string
 
+	// This is the image used for execution.
+	ExecutorImage string
+
 	// CopiedFromHost indicates which environment variables to lift from the current config
 	copiedFromHostEnv cli.StringSlice
 	hardCodedEnv      cli.StringSlice
@@ -102,6 +105,12 @@ func NewConfig() (*Config, []cli.Flag) {
 			Value:       "docker.io",
 			Destination: &cfg.DockerRegistry,
 			EnvVar:      "DOCKER_REGISTRY",
+		},
+		cli.StringFlag{
+			Name:        "executor-image",
+			Value:       "titusops/pause",
+			Destination: &cfg.ExecutorImage,
+			EnvVar:      "EXECUTOR_IMAGE",
 		},
 		cli.StringSliceFlag{
 			Name:  "copied-from-host-env",

@@ -13,15 +13,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Netflix/metrics-client-go/metrics"
 	"github.com/Netflix/titus-executor/api/netflix/titus"
-	"github.com/Netflix/titus-executor/config"
 	titusdriver "github.com/Netflix/titus-executor/executor/drivers"
-	"github.com/Netflix/titus-executor/executor/runner"
-	"github.com/Netflix/titus-executor/executor/runtime/docker"
-	runtimeTypes "github.com/Netflix/titus-executor/executor/runtime/types"
-	dockerTypes "github.com/docker/docker/api/types"
-	protobuf "github.com/golang/protobuf/proto" // nolint: staticcheck
+	"github.com/Netflix/titus-executor/executor/runner" // nolint: staticcheck
 	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
@@ -146,7 +140,6 @@ func TestStandalone(t *testing.T) {
 		testTwoCPUs,
 		testTty,
 		testTtyNegative,
-		testCachedDockerPull,
 		testRunTmpFsMount,
 		testExecSlashRun,
 		testSystemdImageMount,
@@ -186,71 +179,6 @@ func addImageNameToTest(f func(*testing.T, string), funTitle string) func(*testi
 		jobID := fmt.Sprintf("%s-%d-%d", funTitle, rand.Intn(1000), time.Now().Second()) // nolint: gosec
 		f(t, jobID)
 	}
-}
-
-func dockerImageRemove(t *testing.T, imgName string) {
-	cfg, err := config.GenerateConfiguration([]string{})
-	if err != nil {
-		panic(err)
-	}
-
-	dockerCfg, err := docker.GenerateConfiguration(nil)
-	if err != nil {
-		panic(err)
-	}
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	runtimeMaker, err := docker.NewDockerRuntime(ctx, metrics.Discard, *dockerCfg, *cfg)
-	require.NoError(t, err, "Error creating docker runtime maker")
-
-	rt, err := runtimeMaker(ctx, nil, nil, time.Time{})
-	require.NoError(t, err, "Error creating docker runtime")
-
-	drt, ok := rt.(*docker.DockerRuntime)
-	require.True(t, ok, "DockerRuntime cast should succeed")
-
-	require.True(t, ok, "DockerRuntime cast should succeed")
-	err = drt.DockerImageRemove(ctx, imgName)
-	require.NoErrorf(t, err, "No error removing docker image %s: +%v", imgName, err)
-}
-
-func dockerPull(t *testing.T, imgName string, imgDigest string) (*dockerTypes.ImageInspect, error) {
-	cfg, err := config.GenerateConfiguration([]string{})
-	if err != nil {
-		panic(err)
-	}
-
-	dockerCfg, err := docker.GenerateConfiguration(nil)
-	if err != nil {
-		panic(err)
-	}
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	runtimeMaker, err := docker.NewDockerRuntime(ctx, metrics.Discard, *dockerCfg, *cfg)
-	require.NoError(t, err, "Error creating docker runtime maker")
-
-	rt, err := runtimeMaker(ctx, nil, nil, time.Time{})
-	require.NoError(t, err, "Error creating docker runtime")
-
-	drt, ok := rt.(*docker.DockerRuntime)
-	require.True(t, ok, "DockerRuntime cast should succeed")
-	taskID, titusInfo, resources, conf, err := runtimeTypes.ContainerTestArgs()
-	assert.NoError(t, err)
-	titusInfo.ImageName = protobuf.String(imgName)
-	titusInfo.ImageDigest = protobuf.String(imgDigest)
-	titusInfo.IamProfile = protobuf.String("arn:aws:iam::0:role/DefaultContainerRole")
-
-	c, err := runtimeTypes.NewContainer(taskID, titusInfo, *resources, *conf)
-	assert.NoError(t, err)
-
-	res, err := drt.DockerPull(ctx, c)
-	require.NoError(t, err, "No error doing a docker pull")
-
-	return res, err
 }
 
 func testSimpleJob(t *testing.T, jobID string) {
@@ -995,23 +923,6 @@ func testTtyNegative(t *testing.T, jobID string) {
 	if !RunJobExpectingFailure(t, ji) {
 		t.Fail()
 	}
-}
-
-func testCachedDockerPull(t *testing.T, jobID string) {
-	// The no entrypoint image should never be in use by any running
-	// containers, so it should be safe to delete
-	dockerImageRemove(t, noEntrypoint.name+"@"+noEntrypoint.digest)
-	res, err := dockerPull(t, noEntrypoint.name, noEntrypoint.digest)
-	require.NoError(t, err, "No error from first docker pull")
-
-	assert.Nil(t, res, "image shouldn't be cached")
-
-	res, err = dockerPull(t, noEntrypoint.name, noEntrypoint.digest)
-	require.NoError(t, err, "No error from second docker pull")
-
-	assert.NotNil(t, res, "image should now be cached")
-	assert.Len(t, res.RepoDigests, 1, "digest should be present")
-	assert.EqualValues(t, noEntrypoint.name+"@"+noEntrypoint.digest, res.RepoDigests[0], "Correct digest should be returned")
 }
 
 // Test that `/run` is a tmpfs mount, and has the default size
