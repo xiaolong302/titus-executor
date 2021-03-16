@@ -71,7 +71,6 @@ const (
 	defaultRunTmpFsSize     = "134217728" // 128 MiB
 	defaultRunLockTmpFsSize = "5242880"   // 5 MiB: the default setting on Ubuntu Xenial
 	trueString              = "true"
-	systemdImageLabel       = "com.netflix.titus.systemd"
 )
 
 // cleanupFunc can be registered to be called on container teardown, errors are reported, but not acted upon
@@ -573,26 +572,6 @@ func vpcToolPath() string {
 	return ret
 }
 
-// Use image labels to determine if the container should be configured to run SystemD
-func setSystemdRunning(ctx context.Context, imageInfo types.ImageInspect, c runtimeTypes.Container) error {
-	ctx = logger.WithField(ctx, "imageName", c.QualifiedImageName())
-
-	if systemdBool, ok := imageInfo.Config.Labels[systemdImageLabel]; ok {
-		logger.G(ctx).WithField("systemdLabel", systemdBool).Info("SystemD image label set")
-
-		val, err := strconv.ParseBool(systemdBool)
-		if err != nil {
-			logger.G(ctx).WithError(err).Error("Error parsing systemd image label")
-			return errors.Wrap(err, "error parsing systemd image label")
-		}
-
-		c.SetSystemD(val)
-		return nil
-	}
-
-	return nil
-}
-
 // This will setup c.Allocation
 func prepareNetworkDriver(parentCtx context.Context, cfg Config, c runtimeTypes.Container) (cleanupFunc, error) { // nolint: gocyclo
 	log.Printf("Configuring VPC network for %s", c.TaskID())
@@ -769,16 +748,6 @@ func prepareNetworkDriver(parentCtx context.Context, cfg Config, c runtimeTypes.
 	}
 }
 
-// cleanContainerName creates a "clean" container name that adheres to docker's allowed character list
-func cleanContainerName(prefix string, imageName string) string {
-	// so we replace @ with - to match Docker's image naming scheme, a la:
-	// [a-zA-Z0-9][a-zA-Z0-9_.-]
-	noDashes := strings.Replace(imageName, ":", "-", -1)
-	noAts := strings.Replace(noDashes, "@", "-", -1)
-	noSlashes := strings.Replace(noAts, "/", "_", -1)
-	return prefix + "-" + noSlashes
-}
-
 // createVolumeContainerFunc returns a function (suitable for running in a Goroutine) that will create a volume container. See createVolumeContainer() below.
 func (r *DockerRuntime) createVolumeContainerFunc(image, containerName string) func(ctx context.Context) error {
 	return func(ctx context.Context) error {
@@ -948,9 +917,7 @@ func (r *DockerRuntime) Prepare(parentCtx context.Context) error { // nolint: go
 		goto error
 	}
 
-	if err = setSystemdRunning(ctx, *myImageInfo, r.c); err != nil {
-		goto error
-	}
+	r.c.SetSystemD(true)
 
 	dockerCfg, hostCfg, err = r.dockerConfig(r.c, getLXCFsBindMounts(), size, volumeContainers)
 	if err != nil {
@@ -1309,11 +1276,6 @@ func (r *DockerRuntime) Start(parentCtx context.Context) (string, *runtimeTypes.
 		go r.statusMonitor(eventCancel, r.c, eventChan, eventErrChan, statusMessageChan)
 	}
 	return logDir, details, statusMessageChan, err
-
-	go r.statusMonitor(eventCancel, r.c, eventChan, eventErrChan, statusMessageChan)
-	// We already logged above that we aren't using Tini
-	// This means that the log watcher is not started
-	return "", details, statusMessageChan, nil
 }
 
 func (r *DockerRuntime) statusMonitor(cancel context.CancelFunc, c runtimeTypes.Container, eventChan <-chan events.Message, errChan <-chan error, statusMessageChan chan runtimeTypes.StatusMessage) {

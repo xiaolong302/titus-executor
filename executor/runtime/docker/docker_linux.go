@@ -37,15 +37,11 @@ type schedParam struct {
 	schedPriority int32
 }
 
-// Function to determine if a service should be enabled or not
-type serviceEnabledFunc func(cfg *config.Config, c runtimeTypes.Container) bool
-
 const (
 	titusInits                = "/var/lib/titus-inits"
 	systemServiceStartTimeout = 90 * time.Second
 	umountNoFollow            = 0x8
 	sysFsCgroup               = "/sys/fs/cgroup"
-	runcArgFormat             = "--root /var/run/docker/runtime-%s/moby exec --user 0:0 --cap CAP_DAC_OVERRIDE %s %s"
 	defaultOomScore           = 1000
 )
 
