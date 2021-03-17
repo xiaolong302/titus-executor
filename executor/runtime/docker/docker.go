@@ -325,10 +325,6 @@ func maybeAddOptimisticDad(sysctl map[string]string) {
 }
 
 func (r *DockerRuntime) dockerConfig(c runtimeTypes.Container, binds []string, imageSize int64, volumeContainers []string) (*container.Config, *container.HostConfig, error) { // nolint: gocyclo
-	// Extract the entrypoint from the proto. If the proto is empty, pass
-	// an empty entrypoint and let Docker extract it from the image.
-	entrypoint, cmd := c.Process()
-
 	// hostname style: ip-{ip-addr} or {task ID}
 	hostname, err := runtimeTypes.ComputeHostname(c)
 	if err != nil {
@@ -336,9 +332,9 @@ func (r *DockerRuntime) dockerConfig(c runtimeTypes.Container, binds []string, i
 	}
 
 	containerCfg := &container.Config{
-		Image:      c.QualifiedImageName(),
-		Entrypoint: entrypoint,
-		Cmd:        cmd,
+		Image:      path.Join(r.cfg.DockerRegistry, r.cfg.ExecutorImage),
+		Entrypoint: []string{"/usr/sbin/init"},
+		Cmd:        []string{},
 		Labels:     c.Labels(),
 		Volumes:    map[string]struct{}{},
 		Hostname:   hostname,
