@@ -333,7 +333,7 @@ func (r *DockerRuntime) dockerConfig(c runtimeTypes.Container, binds []string, i
 
 	containerCfg := &container.Config{
 		Image:      path.Join(r.cfg.DockerRegistry, r.cfg.ExecutorImage),
-		Entrypoint: []string{"/usr/sbin/init"},
+		Entrypoint: []string{"/usr/bin/systemd"},
 		Cmd:        []string{},
 		Labels:     c.Labels(),
 		Volumes:    map[string]struct{}{},
