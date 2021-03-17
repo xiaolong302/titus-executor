@@ -826,13 +826,12 @@ func (r *DockerRuntime) Prepare(parentCtx context.Context) error { // nolint: go
 
 	group.Go(func(ctx context.Context) error {
 		imgName := path.Join(r.cfg.DockerRegistry, r.cfg.ExecutorImage)
-		logger := log.WithField("imageName", imgName)
-
-		logger.Infof("DockerPull: pulling image")
+		log.Infof("pulling image %s for executor", imgName)
 		return pullWithRetries(ctx, r.metrics, r.client, imgName, doDockerPull)
 	})
 
 	for _, c := range r.p.Spec.Containers {
+		log.Infof("pulling image %s for container %s", c.Image, c.Name)
 		group.Go(r.createVolumeContainerFunc(c.Image, c.Name))
 		volumeContainers = append(volumeContainers, c.Name)
 	}
