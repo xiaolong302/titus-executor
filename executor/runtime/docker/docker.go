@@ -998,6 +998,30 @@ func (r *DockerRuntime) pushPod(c runtimeTypes.Container, p *corev1.Pod, imageIn
 	// Create a new tar archive.
 	tw := tar.NewWriter(&tarBuf)
 
+	if err := tw.WriteHeader(&tar.Header{
+		Name:     "data",
+		Mode:     0755,
+		Typeflag: tar.TypeDir,
+	}); err != nil {
+		log.Fatal(err)
+	}
+
+	if err := tw.WriteHeader(&tar.Header{
+		Name:     "logs",
+		Mode:     0777,
+		Typeflag: tar.TypeDir,
+	}); err != nil {
+		log.Fatal(err)
+	}
+
+	if err := tw.WriteHeader(&tar.Header{
+		Name:     "containers",
+		Mode:     0755,
+		Typeflag: tar.TypeDir,
+	}); err != nil {
+		log.Fatal(err)
+	}
+
 	hdr := &tar.Header{
 		Name: "/pod.json",
 		Mode: 0644,
