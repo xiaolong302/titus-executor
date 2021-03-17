@@ -168,6 +168,7 @@ func NewDockerRuntime(ctx context.Context, m metrics.Reporter, dockerCfg Config,
 			dockerCfg:         dockerCfg,
 			cleanup:           []cleanupFunc{},
 			c:                 c,
+			p:                 p,
 			startTime:         startTime,
 			storageOptEnabled: storageOptEnabled,
 		}
