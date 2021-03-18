@@ -716,6 +716,8 @@ func prepareNetworkDriver(parentCtx context.Context, cfg Config, c runtimeTypes.
 
 // createVolumeContainerFunc returns a function (suitable for running in a Goroutine) that will create a volume container. See createVolumeContainer() below.
 func (r *DockerRuntime) createVolumeContainerFunc(image, containerName, podName string, volumeContainers map[string]string) func(ctx context.Context) error {
+	_volumeContainers := volumeContainers
+
 	return func(ctx context.Context) error {
 		logger.G(ctx).WithField("containerName", containerName).Infof("Setting up container")
 		cfg := &container.Config{
@@ -740,7 +742,7 @@ func (r *DockerRuntime) createVolumeContainerFunc(image, containerName, podName 
 			return errors.Wrapf(err, "Unable to setup %s container", containerName)
 		}
 
-		volumeContainers[destination] = source
+		_volumeContainers[destination] = source
 		return nil
 	}
 }
