@@ -324,7 +324,7 @@ func maybeAddOptimisticDad(sysctl map[string]string) {
 	}
 }
 
-func (r *DockerRuntime) dockerConfig(c runtimeTypes.Container, binds []string, imageSize int64, volumeContainers []string) (*container.Config, *container.HostConfig, error) { // nolint: gocyclo
+func (r *DockerRuntime) dockerConfig(c runtimeTypes.Container, binds []string, imageSize int64, volumeContainers map[string]string) (*container.Config, *container.HostConfig, error) { // nolint: gocyclo
 	// hostname style: ip-{ip-addr} or {task ID}
 	hostname, err := runtimeTypes.ComputeHostname(c)
 	if err != nil {
@@ -369,9 +369,9 @@ func (r *DockerRuntime) dockerConfig(c runtimeTypes.Container, binds []string, i
 		hostCfg.ExtraHosts = append(hostCfg.ExtraHosts, fmt.Sprintf("%s:%s", hostname, *ipv4Addr))
 	}
 
-	for _, containerName := range volumeContainers {
-		log.Infof("Setting up VolumesFrom from container %s", containerName)
-		hostCfg.VolumesFrom = append(hostCfg.VolumesFrom, fmt.Sprintf("%s:ro", containerName))
+	for source, destination := range volumeContainers {
+		log.Infof("Setting up bind mount %s:%s", source, destination)
+		hostCfg.Binds = append(hostCfg.Binds, fmt.Sprintf("%s:%s", source, destination))
 	}
 	hostCfg.CgroupParent = r.pidCgroupPath
 	r.registerRuntimeCleanup(func() error {
@@ -715,13 +715,13 @@ func prepareNetworkDriver(parentCtx context.Context, cfg Config, c runtimeTypes.
 }
 
 // createVolumeContainerFunc returns a function (suitable for running in a Goroutine) that will create a volume container. See createVolumeContainer() below.
-func (r *DockerRuntime) createVolumeContainerFunc(image, containerName string) func(ctx context.Context) error {
+func (r *DockerRuntime) createVolumeContainerFunc(image, containerName string, volumeContainers map[string]string) func(ctx context.Context) error {
 	return func(ctx context.Context) error {
 		logger.G(ctx).WithField("containerName", containerName).Infof("Setting up container")
 		cfg := &container.Config{
 			Hostname: containerName,
 			Volumes: map[string]struct{}{
-				"/containers/" + containerName: {},
+				"/": {},
 			},
 			Entrypoint: []string{"/bin/bash"},
 			Image:      image,
@@ -730,36 +730,42 @@ func (r *DockerRuntime) createVolumeContainerFunc(image, containerName string) f
 			NetworkMode: "none",
 		}
 
-		createErr := r.createVolumeContainer(ctx, containerName, cfg, hostConfig)
-		if createErr != nil {
-			return errors.Wrapf(createErr, "Unable to setup %s container", containerName)
+		// TODO(manas) stop leaking these volumes.
+		containerName = r.c.ID() + "_" + containerName
+
+		source, err := r.createVolumeContainer(ctx, containerName, cfg, hostConfig)
+		if err != nil {
+			return errors.Wrapf(err, "Unable to setup %s container", containerName)
 		}
 
+		destination := fmt.Sprintf("/containers/%s", containerName)
+		volumeContainers[destination] = source
 		return nil
 	}
 }
 
 // createVolumeContainer creates a container to be used as a source for volumes to be mounted via VolumesFrom
-func (r *DockerRuntime) createVolumeContainer(ctx context.Context, containerName string, cfg *container.Config, hostConfig *container.HostConfig) error { // nolint: gocyclo
+func (r *DockerRuntime) createVolumeContainer(ctx context.Context, containerName string, cfg *container.Config, hostConfig *container.HostConfig) (string, error) { // nolint: gocyclo
 	image := cfg.Image
 	tmpImageInfo, err := imageExists(ctx, r.client, image)
 	if err != nil {
-		return err
+		return "", err
 	}
 
 	imageSpecifiedByTag := !strings.Contains(image, "@")
 	ctx = logger.WithField(ctx, "hostName", cfg.Hostname)
 	ctx = logger.WithField(ctx, "imageName", image)
+	ctx = logger.WithField(ctx, "containerName", containerName)
 
 	if tmpImageInfo == nil || imageSpecifiedByTag {
 		logger.G(ctx).WithField("byTag", imageSpecifiedByTag).Info("createVolumeContainer: pulling image")
 		err = pullWithRetries(ctx, r.metrics, r.client, image, doDockerPull)
 		if err != nil {
-			return err
+			return "", err
 		}
 		resp, _, iErr := r.client.ImageInspectWithRaw(ctx, image)
 		if iErr != nil {
-			return iErr
+			return "", iErr
 		}
 
 		// If the image was specified as a tag, resolve it to a digest in case the tag was updated
@@ -769,44 +775,36 @@ func (r *DockerRuntime) createVolumeContainer(ctx context.Context, containerName
 		logger.G(ctx).Info("createVolumeContainer: image exists: not pulling image")
 	}
 
-	// Check if this container exists, if not create it.
-	_, err = r.client.ContainerInspect(ctx, containerName)
-	if err == nil {
-		logger.G(ctx).Info("createVolumeContainer: container exists: not creating")
-		return nil
-	}
-
-	if !docker.IsErrNotFound(err) {
-		return err
-	}
-
 	logger.G(ctx).Info("createVolumeContainer: creating container")
-	// We don't check the error here, because there's no way
-	// to prevent us from accidentally calling this concurrently
-	_, tmpErr := r.client.ContainerCreate(ctx, cfg, hostConfig, nil, containerName)
-	if tmpErr == nil {
-		return nil
+	_, err = r.client.ContainerCreate(ctx, cfg, hostConfig, nil, containerName)
+	if err != nil {
+		return "", err
 	}
 
+	var volumeContainer types.ContainerJSON
 	// Do this with backoff
 	timer := time.NewTicker(100 * time.Millisecond)
 	defer timer.Stop()
 	for {
 		select {
 		case <-timer.C:
-			_, err = r.client.ContainerInspect(ctx, containerName)
+			volumeContainer, err = r.client.ContainerInspect(ctx, containerName)
 			if err == nil {
-				return nil
+				for _, mount := range volumeContainer.Mounts {
+					if mount.Destination == "/" {
+						return mount.Source, nil
+					}
+				}
 			}
 		case <-ctx.Done():
-			return multierror.Append(err, tmpErr, ctx.Err())
+			return "", err
 		}
 	}
 }
 
 // Prepare host state (pull image, create fs, create container, etc...) for the container
 func (r *DockerRuntime) Prepare(parentCtx context.Context) error { // nolint: gocyclo
-	var volumeContainers []string
+	var volumeContainers map[string]string
 
 	parentCtx = logger.WithField(parentCtx, "taskID", r.c.TaskID())
 	logger.G(parentCtx).WithField("prepareTimeout", r.dockerCfg.prepareTimeout).Info("Preparing container")
@@ -832,8 +830,7 @@ func (r *DockerRuntime) Prepare(parentCtx context.Context) error { // nolint: go
 
 	for _, c := range r.p.Spec.Containers {
 		log.Infof("pulling image %s for container %s", c.Image, c.Name)
-		group.Go(r.createVolumeContainerFunc(c.Image, c.Name))
-		volumeContainers = append(volumeContainers, c.Name)
+		group.Go(r.createVolumeContainerFunc(c.Image, c.Name, volumeContainers))
 	}
 
 	if r.cfg.UseNewNetworkDriver {

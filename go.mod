@@ -13,12 +13,10 @@ require (
 	github.com/Netflix/titus-api-definitions v0.0.1-rc9.0.20200520235959-0ab6f1129886
 	github.com/Netflix/titus-kube-common v0.10.1
 	github.com/Nvveen/Gotty v0.0.0-20120604004816-cd527374f1e5 // indirect
-	github.com/alessio/shellescape v0.0.0-20190409004728-b115ca0f9053 // indirect
 	github.com/apparentlymart/go-cidr v1.0.0
 	github.com/aws/aws-sdk-go v1.35.10
 	github.com/containernetworking/cni v0.7.1
 	github.com/coreos/go-systemd v0.0.0-20200109085637-d657f9650837
-	github.com/cyphar/filepath-securejoin v0.2.2
 	github.com/deckarep/golang-set v1.7.1
 	github.com/dgrijalva/jwt-go v3.2.0+incompatible
 	github.com/docker/docker v0.7.3-0.20190327010347-be7ac8be2ae0
@@ -37,10 +35,8 @@ require (
 	github.com/json-iterator/go v1.1.9 // indirect
 	github.com/jteeuwen/go-bindata v3.0.7+incompatible
 	github.com/karlseguin/ccache/v2 v2.0.7-0.20200814031513-0dbf3f125f13
-	github.com/leanovate/gopter v0.0.0-20170420174722-9e6101e5a875
 	github.com/lib/pq v1.3.0
 	github.com/mdlayher/ndp v0.0.0-20200602162440-17ab9e3e5567
-	github.com/mvisonneau/go-ebsnvme v0.0.0-20201026165225-e63797fabc2f
 	github.com/myitcv/gobin v0.0.9
 	github.com/netflix-skunkworks/opencensus-go-exporter-datadog v0.0.0-20190911150647-ef71dde58796
 	github.com/opencontainers/runc v1.0.0-rc10
@@ -71,7 +67,6 @@ require (
 	google.golang.org/genproto v0.0.0-20200218151345-dad8c97a84f5 // indirect
 	google.golang.org/grpc v1.27.1
 	google.golang.org/protobuf v1.23.0
-	gopkg.in/alessio/shellescape.v1 v1.0.0-20170105083845-52074bc9df61
 	gopkg.in/ini.v1 v1.52.0 // indirect
 	gopkg.in/urfave/cli.v1 v1.20.0
 	gotest.tools v2.2.0+incompatible
