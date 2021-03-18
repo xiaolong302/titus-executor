@@ -369,7 +369,7 @@ func (r *DockerRuntime) dockerConfig(c runtimeTypes.Container, binds []string, i
 		hostCfg.ExtraHosts = append(hostCfg.ExtraHosts, fmt.Sprintf("%s:%s", hostname, *ipv4Addr))
 	}
 
-	for source, destination := range volumeContainers {
+	for destination, source := range volumeContainers {
 		log.Infof("Setting up bind mount %s:%s", source, destination)
 		hostCfg.Binds = append(hostCfg.Binds, fmt.Sprintf("%s:%s", source, destination))
 	}
