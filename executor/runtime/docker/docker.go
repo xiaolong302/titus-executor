@@ -730,6 +730,8 @@ func (r *DockerRuntime) createVolumeContainerFunc(image, containerName string, v
 			NetworkMode: "none",
 		}
 
+		destination := fmt.Sprintf("/containers/%s", containerName)
+
 		// TODO(manas) stop leaking these volumes.
 		containerName = r.c.ID() + "_" + containerName
 
@@ -738,7 +740,6 @@ func (r *DockerRuntime) createVolumeContainerFunc(image, containerName string, v
 			return errors.Wrapf(err, "Unable to setup %s container", containerName)
 		}
 
-		destination := fmt.Sprintf("/containers/%s", containerName)
 		volumeContainers[destination] = source
 		return nil
 	}
