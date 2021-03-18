@@ -715,7 +715,7 @@ func prepareNetworkDriver(parentCtx context.Context, cfg Config, c runtimeTypes.
 }
 
 // createVolumeContainerFunc returns a function (suitable for running in a Goroutine) that will create a volume container. See createVolumeContainer() below.
-func (r *DockerRuntime) createVolumeContainerFunc(image, containerName string, volumeContainers map[string]string) func(ctx context.Context) error {
+func (r *DockerRuntime) createVolumeContainerFunc(image, containerName, podName string, volumeContainers map[string]string) func(ctx context.Context) error {
 	return func(ctx context.Context) error {
 		logger.G(ctx).WithField("containerName", containerName).Infof("Setting up container")
 		cfg := &container.Config{
@@ -733,7 +733,7 @@ func (r *DockerRuntime) createVolumeContainerFunc(image, containerName string, v
 		destination := fmt.Sprintf("/containers/%s", containerName)
 
 		// TODO(manas) stop leaking these volumes.
-		containerName = r.c.ID() + "_" + containerName
+		containerName = podName + "_" + containerName
 
 		source, err := r.createVolumeContainer(ctx, containerName, cfg, hostConfig)
 		if err != nil {
@@ -796,6 +796,7 @@ func (r *DockerRuntime) createVolumeContainer(ctx context.Context, containerName
 						return mount.Source, nil
 					}
 				}
+				return "", fmt.Errorf("cannot find volume with destination /")
 			}
 		case <-ctx.Done():
 			return "", err
@@ -805,7 +806,7 @@ func (r *DockerRuntime) createVolumeContainer(ctx context.Context, containerName
 
 // Prepare host state (pull image, create fs, create container, etc...) for the container
 func (r *DockerRuntime) Prepare(parentCtx context.Context) error { // nolint: gocyclo
-	var volumeContainers map[string]string
+	volumeContainers := map[string]string{}
 
 	parentCtx = logger.WithField(parentCtx, "taskID", r.c.TaskID())
 	logger.G(parentCtx).WithField("prepareTimeout", r.dockerCfg.prepareTimeout).Info("Preparing container")
@@ -831,7 +832,7 @@ func (r *DockerRuntime) Prepare(parentCtx context.Context) error { // nolint: go
 
 	for _, c := range r.p.Spec.Containers {
 		log.Infof("pulling image %s for container %s", c.Image, c.Name)
-		group.Go(r.createVolumeContainerFunc(c.Image, c.Name, volumeContainers))
+		group.Go(r.createVolumeContainerFunc(c.Image, c.Name, r.p.Name, volumeContainers))
 	}
 
 	if r.cfg.UseNewNetworkDriver {
