@@ -440,6 +440,8 @@ func (r *DockerRuntime) dockerConfig(c runtimeTypes.Container, binds []string, i
 		if err != nil {
 			return nil, nil, err
 		}
+		// TODO: Don't apply this to evrything in the future
+		hostCfg.CapAdd = append(hostCfg.CapAdd, "SYS_ADMIN")
 	}
 
 	// label is necessary for metadata proxy compatibility
