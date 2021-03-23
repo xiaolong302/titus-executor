@@ -35,7 +35,7 @@ func addAdditionalCapabilities(c runtimeTypes.Container, hostCfg *container.Host
 func setupAdditionalCapabilities(c runtimeTypes.Container, hostCfg *container.HostConfig) error {
 	addedCapabilities := addAdditionalCapabilities(c, hostCfg)
 	seccompProfile := "default.json"
-	apparmorProfile := "docker_titus"
+	//apparmorProfile := "docker_titus"
 
 	if c.FuseEnabled() {
 		if _, ok := addedCapabilities[SYS_ADMIN]; !ok {
@@ -47,7 +47,7 @@ func setupAdditionalCapabilities(c runtimeTypes.Container, hostCfg *container.Ho
 			PathInContainer:   fuseDev,
 			CgroupPermissions: "rmw",
 		})
-		apparmorProfile = "docker_fuse"
+		//apparmorProfile = "docker_fuse"
 		seccompProfile = "fuse-container.json"
 	}
 
@@ -82,12 +82,11 @@ func setupAdditionalCapabilities(c runtimeTypes.Container, hostCfg *container.Ho
 		hostCfg.Sysctls["net.ipv4.conf.all.arp_ignore"] = "1"
 	}
 
-	if c.IsSystemD() {
-		// Tell Tini to exec systemd so it's pid 1
-		c.SetEnv("TINI_HANDOFF", trueString)
-	}
+	// Tell Tini to exec systemd so it's pid 1
+	c.SetEnv("TINI_HANDOFF", trueString)
 
-	hostCfg.SecurityOpt = append(hostCfg.SecurityOpt, "apparmor:"+apparmorProfile)
+	//hostCfg.SecurityOpt = append(hostCfg.SecurityOpt, "apparmor:"+apparmorProfile)
+	hostCfg.SecurityOpt = append(hostCfg.SecurityOpt, "apparmor:unconfined")
 	asset := seccomp.MustAsset(seccompProfile)
 	var buf bytes.Buffer
 	err := json.Compact(&buf, asset)
@@ -95,7 +94,8 @@ func setupAdditionalCapabilities(c runtimeTypes.Container, hostCfg *container.Ho
 		return fmt.Errorf("Could not JSON compact seccomp profile string: %w", err)
 	}
 
-	hostCfg.SecurityOpt = append(hostCfg.SecurityOpt, fmt.Sprintf("seccomp=%s", buf.String()))
+	//hostCfg.SecurityOpt = append(hostCfg.SecurityOpt, fmt.Sprintf("seccomp=%s", buf.String()))
+	hostCfg.SecurityOpt = append(hostCfg.SecurityOpt, "seccomp=unconfined")
 
 	return nil
 }

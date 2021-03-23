@@ -396,10 +396,8 @@ func (r *DockerRuntime) dockerConfig(c runtimeTypes.Container, binds []string, i
 		"/run": "rw,exec,size=" + defaultRunTmpFsSize,
 	}
 
-	if c.IsSystemD() {
-		// systemd requires `/run/lock` to be a separate mount from `/run`
-		hostCfg.Tmpfs["/run/lock"] = "rw,exec,size=" + defaultRunLockTmpFsSize
-	}
+	// systemd requires `/run/lock` to be a separate mount from `/run`
+	hostCfg.Tmpfs["/run/lock"] = "rw,exec,size=" + defaultRunLockTmpFsSize
 
 	if shmSize := c.ShmSizeMiB(); shmSize != nil {
 		hostCfg.ShmSize = int64(*shmSize) * MiB
