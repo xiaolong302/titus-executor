@@ -94,8 +94,7 @@ func setupAdditionalCapabilities(c runtimeTypes.Container, hostCfg *container.Ho
 		return fmt.Errorf("Could not JSON compact seccomp profile string: %w", err)
 	}
 
-	//hostCfg.SecurityOpt = append(hostCfg.SecurityOpt, fmt.Sprintf("seccomp=%s", buf.String()))
-	hostCfg.SecurityOpt = append(hostCfg.SecurityOpt, "seccomp=unconfined")
+	hostCfg.SecurityOpt = append(hostCfg.SecurityOpt, fmt.Sprintf("seccomp=%s", buf.String()))
 
 	return nil
 }
