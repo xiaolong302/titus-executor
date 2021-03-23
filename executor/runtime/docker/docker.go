@@ -438,7 +438,7 @@ func (r *DockerRuntime) dockerConfig(c runtimeTypes.Container, binds []string, i
 		if err != nil {
 			return nil, nil, err
 		}
-		// TODO: Don't apply this to evrything in the future
+		// TODO(pseudopods): Can we apply this to the shell and control caps inside the shell?
 		hostCfg.CapAdd = append(hostCfg.CapAdd, "SYS_ADMIN")
 	}
 
