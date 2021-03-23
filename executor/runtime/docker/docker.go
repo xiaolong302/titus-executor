@@ -425,7 +425,6 @@ func (r *DockerRuntime) dockerConfig(c runtimeTypes.Container, binds []string, i
 	}
 	// TODO(pseudopods): Can we apply this to the shell and control caps inside the shell?
 	hostCfg.CapAdd = append(hostCfg.CapAdd, "SYS_ADMIN")
-	hostCfg.SecurityOpt = append(hostCfg.SecurityOpt, "apparmor:unconfined")
 
 	// label is necessary for metadata proxy compatibility
 	if ipv4Addr != nil {
