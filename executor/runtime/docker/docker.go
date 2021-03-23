@@ -419,28 +419,13 @@ func (r *DockerRuntime) dockerConfig(c runtimeTypes.Container, binds []string, i
 	// This is just factored out mutation of these objects to make the code cleaner.
 	r.setupLogs(c, hostCfg)
 
-	if r.cfg.PrivilegedContainersEnabled {
-		// Note: ATM, this is used to enable MCE to use FUSE within a container and
-		// is expected to only be used in their account. So these are the only capabilities
-		// we allow.
-		log.Infof("Enabling privileged access for task %s", c.TaskID())
-		hostCfg.CapAdd = append(hostCfg.CapAdd, "SYS_ADMIN")
-		hostCfg.Resources.Devices = append(hostCfg.Resources.Devices, container.DeviceMapping{
-			PathOnHost:        fuseDev,
-			PathInContainer:   fuseDev,
-			CgroupPermissions: "rmw",
-		})
-		// Note: This is only needed in Docker 1.10 and 1.11. In 1.12 the default
-		// seccomp profile will automatically adjust based on the capabilities.
-		hostCfg.SecurityOpt = append(hostCfg.SecurityOpt, "apparmor:unconfined")
-	} else {
-		err = setupAdditionalCapabilities(c, hostCfg)
-		if err != nil {
-			return nil, nil, err
-		}
-		// TODO(pseudopods): Can we apply this to the shell and control caps inside the shell?
-		hostCfg.CapAdd = append(hostCfg.CapAdd, "SYS_ADMIN")
+	err = setupAdditionalCapabilities(c, hostCfg)
+	if err != nil {
+		return nil, nil, err
 	}
+	// TODO(pseudopods): Can we apply this to the shell and control caps inside the shell?
+	hostCfg.CapAdd = append(hostCfg.CapAdd, "SYS_ADMIN")
+	hostCfg.SecurityOpt = append(hostCfg.SecurityOpt, "apparmor:unconfined")
 
 	// label is necessary for metadata proxy compatibility
 	if ipv4Addr != nil {
@@ -743,6 +728,9 @@ func (r *DockerRuntime) createVolumeContainerFunc(image, containerName, podName 
 		}
 
 		_volumeContainers[destination] = source
+		r.registerRuntimeCleanup(func() error {
+			return r.removeContainer(ctx, containerName)
+		})
 		return nil
 	}
 }
@@ -1791,17 +1779,21 @@ stopped:
 	return errs.ErrorOrNil()
 }
 
-// Cleanup runs the registered callbacks for a container
-func (r *DockerRuntime) Cleanup(ctx context.Context) error {
-	var errs *multierror.Error
-
+func (r *DockerRuntime) removeContainer(ctx context.Context, containerName string) error {
 	cro := types.ContainerRemoveOptions{
 		RemoveVolumes: true,
 		RemoveLinks:   false,
 		Force:         true,
 	}
 
-	if err := r.client.ContainerRemove(context.TODO(), r.c.ID(), cro); err != nil {
+	return r.client.ContainerRemove(ctx, containerName, cro)
+}
+
+// Cleanup runs the registered callbacks for a container
+func (r *DockerRuntime) Cleanup(ctx context.Context) error {
+	var errs *multierror.Error
+
+	if err := r.removeContainer(ctx, r.c.ID()); err != nil {
 		r.metrics.Counter("titus.executor.dockerRemoveContainerError", 1, nil)
 		log.Errorf("Failed to remove container '%s' with ID: %s: %v", r.c.TaskID(), r.c.ID(), err)
 		errs = multierror.Append(errs, err)
