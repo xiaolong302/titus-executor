@@ -973,8 +973,20 @@ func (r *DockerRuntime) logDir(c runtimeTypes.Container) string {
 	return filepath.Join(netflixLoggerTempDir(r.cfg, c), "logs")
 }
 
+func patchPod(c runtimeTypes.Container, p *corev1.Pod) {
+	fc := &p.Spec.Containers[0]
+	if len(p.Spec.Containers) == 1 && len(fc.Args) == 0 && len(fc.Command) == 0 {
+		cmd, args := c.Process()
+		fc.Args = args
+		fc.Command = cmd
+	}
+}
+
 func (r *DockerRuntime) pushPod(c runtimeTypes.Container, p *corev1.Pod, imageInfo *types.ImageInspect) error { // nolint: gocyclo
 	var podFileBuf, tarBuf bytes.Buffer
+
+	// XXX: hack up the pod if it came through the Titus API
+	patchPod(c, p)
 
 	json, err := json.MarshalIndent(p, "", "  ")
 	if err != nil {
