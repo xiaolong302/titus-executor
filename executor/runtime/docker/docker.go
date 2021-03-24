@@ -63,9 +63,6 @@ const (
 )
 
 const (
-	fuseDev = "/dev/fuse"
-	kvmDev  = "/dev/kvm"
-	tunDev  = "/dev/net/tun"
 	// See: TITUS-1231, this is added as extra padding for container initialization
 	builtInDiskBuffer       = 1100 // In megabytes, includes extra space for /logs.
 	defaultNetworkBandwidth = 128 * MB
@@ -423,8 +420,6 @@ func (r *DockerRuntime) dockerConfig(c runtimeTypes.Container, binds []string, i
 	if err != nil {
 		return nil, nil, err
 	}
-	// TODO(pseudopods): Can we apply this to the shell and control caps inside the shell?
-	hostCfg.CapAdd = append(hostCfg.CapAdd, "SYS_ADMIN")
 
 	// label is necessary for metadata proxy compatibility
 	if ipv4Addr != nil {

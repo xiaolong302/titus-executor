@@ -694,6 +694,7 @@ func deleteFromIPv4BPFMap(ctx context.Context, allocation types.Allocation) erro
 
 	return nil
 }
+
 func deleteFromIPv6BPFMap(ctx context.Context, allocation types.Allocation) error {
 	if allocation.IPV6Address == nil {
 		return nil
