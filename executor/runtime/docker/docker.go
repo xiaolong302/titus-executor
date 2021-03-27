@@ -115,10 +115,12 @@ type DockerRuntime struct { // nolint: golint
 	cleanup         []cleanupFunc
 
 	// To be set when initializing a specific instance of the runtime provider
-	c          runtimeTypes.Container
-	p          *corev1.Pod
-	startTime  time.Time
-	gpuManager runtimeTypes.GPUManager
+	c                runtimeTypes.Container
+	p                *corev1.Pod
+	volumeMap        map[string]string
+	memberContainers []string
+	startTime        time.Time
+	gpuManager       runtimeTypes.GPUManager
 }
 
 type Opt func(ctx context.Context, runtime *DockerRuntime) error
@@ -166,6 +168,8 @@ func NewDockerRuntime(ctx context.Context, m metrics.Reporter, dockerCfg Config,
 			cleanup:           []cleanupFunc{},
 			c:                 c,
 			p:                 p,
+			volumeMap:         map[string]string{},
+			memberContainers:  []string{},
 			startTime:         startTime,
 			storageOptEnabled: storageOptEnabled,
 		}
@@ -321,7 +325,7 @@ func maybeAddOptimisticDad(sysctl map[string]string) {
 	}
 }
 
-func (r *DockerRuntime) dockerConfig(c runtimeTypes.Container, binds []string, imageSize int64, volumeContainers map[string]string) (*container.Config, *container.HostConfig, error) { // nolint: gocyclo
+func (r *DockerRuntime) dockerConfig(c runtimeTypes.Container, binds []string, imageSize int64) (*container.Config, *container.HostConfig, error) { // nolint: gocyclo
 	// hostname style: ip-{ip-addr} or {task ID}
 	hostname, err := runtimeTypes.ComputeHostname(c)
 	if err != nil {
@@ -366,7 +370,7 @@ func (r *DockerRuntime) dockerConfig(c runtimeTypes.Container, binds []string, i
 		hostCfg.ExtraHosts = append(hostCfg.ExtraHosts, fmt.Sprintf("%s:%s", hostname, *ipv4Addr))
 	}
 
-	for destination, source := range volumeContainers {
+	for destination, source := range r.volumeMap {
 		log.Infof("Setting up bind mount %s:%s", source, destination)
 		hostCfg.Binds = append(hostCfg.Binds, fmt.Sprintf("%s:%s", source, destination))
 	}
@@ -694,37 +698,36 @@ func prepareNetworkDriver(parentCtx context.Context, cfg Config, c runtimeTypes.
 }
 
 // createVolumeContainerFunc returns a function (suitable for running in a Goroutine) that will create a volume container. See createVolumeContainer() below.
-func (r *DockerRuntime) createVolumeContainerFunc(image, containerName, podName string, volumeContainers map[string]string) func(ctx context.Context) error {
-	_volumeContainers := volumeContainers
+func (r *DockerRuntime) createVolumeContainerFunc(image, containerName, podName string) func(ctx context.Context) error {
+	// https://golang.org/doc/faq#closures_and_goroutines
+	_image, _containerName, _podName := image, containerName, podName
 
 	return func(ctx context.Context) error {
-		logger.G(ctx).WithField("containerName", containerName).Infof("Setting up container")
+		logger.G(ctx).WithField("containerName", _containerName).Infof("Setting up container")
 		cfg := &container.Config{
-			Hostname: containerName,
+			Hostname: _containerName,
 			Volumes: map[string]struct{}{
 				"/": {},
 			},
 			Entrypoint: []string{"/bin/bash"},
-			Image:      image,
+			Image:      _image,
 		}
 		hostConfig := &container.HostConfig{
 			NetworkMode: "none",
 		}
 
-		destination := fmt.Sprintf("/containers/%s", containerName)
+		destination := fmt.Sprintf("/containers/%s", _containerName)
 
 		// TODO(manas) stop leaking these volumes.
-		containerName = podName + "_" + containerName
+		_containerName = _podName + "_" + _containerName
+		r.memberContainers = append(r.memberContainers, containerName)
 
-		source, err := r.createVolumeContainer(ctx, containerName, cfg, hostConfig)
+		source, err := r.createVolumeContainer(ctx, _containerName, cfg, hostConfig)
 		if err != nil {
-			return errors.Wrapf(err, "Unable to setup %s container", containerName)
+			return errors.Wrapf(err, "Unable to setup %s container", _containerName)
 		}
 
-		_volumeContainers[destination] = source
-		r.registerRuntimeCleanup(func() error {
-			return r.removeContainer(ctx, containerName)
-		})
+		r.volumeMap[destination] = source
 		return nil
 	}
 }
@@ -790,8 +793,6 @@ func (r *DockerRuntime) createVolumeContainer(ctx context.Context, containerName
 
 // Prepare host state (pull image, create fs, create container, etc...) for the container
 func (r *DockerRuntime) Prepare(parentCtx context.Context) error { // nolint: gocyclo
-	volumeContainers := map[string]string{}
-
 	parentCtx = logger.WithField(parentCtx, "taskID", r.c.TaskID())
 	logger.G(parentCtx).WithField("prepareTimeout", r.dockerCfg.prepareTimeout).Info("Preparing container")
 
@@ -816,7 +817,7 @@ func (r *DockerRuntime) Prepare(parentCtx context.Context) error { // nolint: go
 
 	for _, c := range r.p.Spec.Containers {
 		log.Infof("pulling image %s for container %s", c.Image, c.Name)
-		group.Go(r.createVolumeContainerFunc(c.Image, c.Name, r.p.Name, volumeContainers))
+		group.Go(r.createVolumeContainerFunc(c.Image, c.Name, r.p.Name))
 	}
 
 	if r.cfg.UseNewNetworkDriver {
@@ -859,7 +860,7 @@ func (r *DockerRuntime) Prepare(parentCtx context.Context) error { // nolint: go
 
 	r.c.SetSystemD(true)
 
-	dockerCfg, hostCfg, err = r.dockerConfig(r.c, getLXCFsBindMounts(), size, volumeContainers)
+	dockerCfg, hostCfg, err = r.dockerConfig(r.c, getLXCFsBindMounts(), size)
 	if err != nil {
 		goto error
 	}
@@ -1799,10 +1800,13 @@ func (r *DockerRuntime) removeContainer(ctx context.Context, containerName strin
 func (r *DockerRuntime) Cleanup(ctx context.Context) error {
 	var errs *multierror.Error
 
-	if err := r.removeContainer(ctx, r.c.ID()); err != nil {
-		r.metrics.Counter("titus.executor.dockerRemoveContainerError", 1, nil)
-		log.Errorf("Failed to remove container '%s' with ID: %s: %v", r.c.TaskID(), r.c.ID(), err)
-		errs = multierror.Append(errs, err)
+	r.memberContainers = append(r.memberContainers, r.c.ID())
+	for _, c := range r.memberContainers {
+		if err := r.removeContainer(ctx, c); err != nil {
+			r.metrics.Counter("titus.executor.dockerRemoveContainerError", 1, nil)
+			log.Errorf("Failed to remove container '%s' with ID: %s: %v", r.c.TaskID(), r.c.ID(), err)
+			errs = multierror.Append(errs, err)
+		}
 	}
 
 	r.cleanupFuncLock.Lock()
