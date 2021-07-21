@@ -12,6 +12,7 @@ import (
 
 	"github.com/Netflix/titus-executor/api/netflix/titus"
 	"github.com/Netflix/titus-executor/logger"
+	"github.com/Netflix/titus-executor/vpc"
 	"github.com/Netflix/titus-executor/vpc/service/ec2wrapper"
 	"github.com/Netflix/titus-executor/vpc/service/vpcerrors"
 	"github.com/Netflix/titus-executor/vpc/tracehelpers"
@@ -1124,11 +1125,25 @@ func (vpcService *vpcService) createBranchENI(ctx context.Context, tx *sql.Tx, s
 	ctx, span := trace.StartSpan(ctx, "createBranchENI")
 	defer span.End()
 
+	// TODO: Use idempotency token
+	// TODO: Get rid of ENI Backfill
+	now := time.Now()
 	createNetworkInterfaceInput := ec2.CreateNetworkInterfaceInput{
 		Ipv6AddressCount: aws.Int64(0),
 		SubnetId:         aws.String(subnetID),
 		Description:      aws.String(vpcService.branchNetworkInterfaceDescription),
 		Groups:           aws.StringSlice(securityGroups),
+		TagSpecifications: []*ec2.TagSpecification{
+			{
+				ResourceType: aws.String("network-interface"),
+				Tags: []*ec2.Tag{
+					{
+						Key:   aws.String(vpc.ENICreationTimeTag),
+						Value: aws.String(now.Format(time.RFC3339)),
+					},
+				},
+			},
+		},
 	}
 
 	output, err := session.CreateNetworkInterface(ctx, createNetworkInterfaceInput)
