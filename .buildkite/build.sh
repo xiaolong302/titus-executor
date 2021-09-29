@@ -7,7 +7,7 @@ log() {
 
 apt-get -y install shellcheck
 
-GO_VERSION=1.13.14
+GO_VERSION=1.16.8
 GO_INSTALL_DIR=${HOME}/go_installs/${GO_VERSION}
 if [[ ! -d ${GO_INSTALL_DIR}/go ]]; then
     mkdir -p ${GO_INSTALL_DIR}
