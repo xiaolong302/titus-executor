@@ -452,7 +452,8 @@ func (r *DockerRuntime) mainContainerDockerConfig(c runtimeTypes.Container, bind
 
 	// Always setup tmpfs: it's needed to ensure Metatron credentials don't persist across reboots and for SystemD to work
 	hostCfg.Tmpfs = map[string]string{
-		"/run": "rw,exec,size=" + defaultRunTmpFsSize,
+		"/run":       "rw,exec,size=" + defaultRunTmpFsSize,
+		"/run/netns": "rw,size=" + defaultRunTmpFsSize,
 	}
 
 	if c.IsSystemD() {
@@ -1433,29 +1434,40 @@ func (r *DockerRuntime) Start(parentCtx context.Context, pod *v1.Pod) (string, *
 
 	allocation := r.c.VPCAllocation()
 	ipv4addr := allocation.IPV4Address()
+	transitionAssignment := allocation.TransitionAddress()
 	eni := allocation.ContainerENI()
-	if allocation == nil || ipv4addr == nil || eni == nil {
+	if allocation == nil || eni == nil {
 		eventCancel()
 		if allocation == nil {
 			return "", nil, statusMessageChan, errors.New("allocation unset")
-		}
-		if ipv4addr == nil {
-			return "", nil, statusMessageChan, errors.New("VPC IPv4 allocation unset")
 		}
 		if eni == nil {
 			return "", nil, statusMessageChan, errors.New("ENI in allocation unset")
 		}
 	}
 
+	if transitionAssignment != nil && ipv4addr != nil {
+		eventCancel()
+		return "", nil, statusMessageChan, fmt.Errorf("Both transition assignment %s and IPv4 address are set %s", transitionAssignment, ipv4addr)
+	}
+
 	details = &runtimeTypes.Details{
 		NetworkConfiguration: &runtimeTypes.NetworkConfigurationDetails{
 			IsRoutableIP: true,
-			IPAddress:    ipv4addr.Address.Address,
-			EniIPAddress: ipv4addr.Address.Address,
 			NetworkMode:  r.c.EffectiveNetworkMode(),
 			ResourceID:   fmt.Sprintf("resource-eni-%d", allocation.DeviceIndex()-1),
 			EniID:        eni.NetworkInterfaceId,
 		},
+	}
+
+	if ipv4addr != nil {
+		details.NetworkConfiguration.IPAddress = ipv4addr.Address.Address
+		details.NetworkConfiguration.EniIPAddress = ipv4addr.Address.Address
+	}
+
+	if transitionAssignment != nil {
+		details.NetworkConfiguration.IPAddress = transitionAssignment.Address.Address
+		details.NetworkConfiguration.EniIPAddress = transitionAssignment.Address.Address
 	}
 
 	if a := allocation.IPV6Address(); a != nil {
