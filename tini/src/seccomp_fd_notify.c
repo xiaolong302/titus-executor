@@ -108,19 +108,20 @@ static int seccomp(unsigned int operation, unsigned int flags, void *args)
    notifications can be fetched. 
 */
 static int install_notify_filter(void) {
-	int notify_fd = -1;
+	int notify_fd = -1, filter_idx = 0;
 	struct sock_fprog prog = {0};
+	struct sock_filter filter[BPF_MAXINSNS + 1];
 	
-	struct sock_filter perf_filter[] = {
+	struct sock_filter check_filter[] = {
 		/* X86_64_CHECK_ARCH_AND_LOAD_SYSCALL_NR */
-		BPF_STMT(BPF_LD | BPF_W | BPF_ABS,
-			 (offsetof(struct seccomp_data, arch))),
+		BPF_STMT(BPF_LD | BPF_W | BPF_ABS, (offsetof(struct seccomp_data, arch))),
 		BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, AUDIT_ARCH_X86_64, 0, 2),
-		BPF_STMT(BPF_LD | BPF_W | BPF_ABS,
-			 (offsetof(struct seccomp_data, nr))),
+		BPF_STMT(BPF_LD | BPF_W | BPF_ABS, (offsetof(struct seccomp_data, nr))),
 		BPF_JUMP(BPF_JMP | BPF_JGE | BPF_K, X32_SYSCALL_BIT, 0, 1),
 		BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW),
+	};
 
+	struct sock_filter perf_filter[] = {
 		/* Trap perf-related syscalls */
 		BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_bpf, 0, 1),
 		BPF_STMT(BPF_RET + BPF_K, SECCOMP_RET_USER_NOTIF),
@@ -141,14 +142,7 @@ static int install_notify_filter(void) {
 		BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW),
 	};
 
-struct sock_filter net_filter[] = {
-		/* X86_64_CHECK_ARCH_AND_LOAD_SYSCALL_NR */
-		BPF_STMT(BPF_LD | BPF_W | BPF_ABS, (offsetof(struct seccomp_data, arch))),
-		BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, AUDIT_ARCH_X86_64, 0, 2),
-		BPF_STMT(BPF_LD | BPF_W | BPF_ABS, (offsetof(struct seccomp_data, nr))),
-		BPF_JUMP(BPF_JMP | BPF_JGE | BPF_K, X32_SYSCALL_BIT, 0, 1),
-		BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW),
-
+	struct sock_filter net_filter[] = {
 		/* Trap sendto */
 		BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_sendto, 0, 1),
 		BPF_STMT(BPF_RET + BPF_K, SECCOMP_RET_USER_NOTIF),
@@ -161,7 +155,15 @@ struct sock_filter net_filter[] = {
 		/* Trap connect */
 		BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_connect, 0, 1),
 		BPF_STMT(BPF_RET + BPF_K, SECCOMP_RET_USER_NOTIF),
+	};
 
+	struct sock_filter traffic_steering_filter[] = {
+		/* Trap setsocktopt */
+		BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_setsockopt, 0, 1),
+		BPF_STMT(BPF_RET + BPF_K, SECCOMP_RET_USER_NOTIF),
+	};
+
+	struct sock_filter allow_filter[] = {
 		/* Every other system call is allowed */
 		BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW),
 	};
@@ -179,22 +181,59 @@ struct sock_filter net_filter[] = {
 		}
 	}
 
+	for (int i = 0;
+	     i < (unsigned short)(sizeof(check_filter) / sizeof(check_filter[0])) &&
+		 filter_idx < BPF_MAXINSNS;
+		 i++) {
+		filter[filter_idx] = check_filter[i];
+		filter_idx++;
+	}
+
 	char *is_handle_net = getenv("TITUS_SECCOMP_AGENT_HANDLE_NET_SYSCALLS");
 	char *is_handle_perf = getenv("TITUS_SECCOMP_AGENT_HANDLE_PERF_SYSCALLS");
+	char *is_traffic_steering = getenv("TITUS_TRAFFIC_STEERING");
 	if (is_handle_net != NULL) {
-		prog.filter = net_filter;
-		prog.len = 
-			(unsigned short)(sizeof(net_filter) / sizeof(net_filter[0]));
+		for (int i = 0;
+		     i < (unsigned short)(sizeof(net_filter) / sizeof(net_filter[0])) &&
+			 filter_idx < BPF_MAXINSNS;
+		     i++) {
+			filter[filter_idx] = net_filter[i];
+			filter_idx++;
+		}
 		PRINT_INFO("Networking system calls will be intercepted");
 	} else if (is_handle_perf != NULL) {
-		prog.filter = perf_filter;
-		prog.len = 
-			(unsigned short)(sizeof(perf_filter) / sizeof(perf_filter[0]));
+		for (int i = 0;
+		     i < (unsigned short)(sizeof(perf_filter) / sizeof(perf_filter[0])) &&
+			 filter_idx < BPF_MAXINSNS;
+			 i++) {
+			filter[filter_idx] = perf_filter[i];
+			filter_idx++;
+		}
 		PRINT_INFO("BPF/Perf system calls will be intercepted");
+	} else if (is_traffic_steering != NULL) {
+		for (int i = 0;
+			 i < (unsigned short)(sizeof(traffic_steering_filter) / sizeof(traffic_steering_filter[0])) &&
+			 filter_idx < BPF_MAXINSNS;
+			 i++) {
+			filter[filter_idx] = traffic_steering_filter[i];
+			filter_idx++;
+		}
+		PRINT_INFO("traffic steering system calls will be intercepted");
 	} else {
 		PRINT_INFO("No env variables set, no interception of system calls");
 		return -1;
 	}
+
+	for (int i = 0;
+	     i < (unsigned short)(sizeof(allow_filter) / sizeof(allow_filter[0])) &&
+	     filter_idx < BPF_MAXINSNS;
+		 i++) {
+		filter[filter_idx] = allow_filter[i];
+		filter_idx++;
+	}
+
+	prog.filter = filter;
+	prog.len = filter_idx;
 
 	/* Install the filter with the SECCOMP_FILTER_FLAG_NEW_LISTENER flag; as
 	   a result, seccomp() returns a notification file descriptor. */
