@@ -1029,6 +1029,14 @@ func (r *DockerRuntime) Prepare(ctx context.Context) error { // nolint: gocyclo
 		}
 	}
 
+	if runtimeTypes.GetSidecarConfig(sidecarConfigs, runtimeTypes.SidecarTrafficSteering).EnabledCheck(&r.cfg, r.c) {
+		if r.c.TrafficSteeringEnabled() {
+			r.c.SetEnvs(map[string]string{
+				"TITUS_TRAFFIC_STEERING": "true",
+			})
+		}
+	}
+
 	if runtimeTypes.GetSidecarConfig(sidecarConfigs, runtimeTypes.SidecarTitusStorage).EnabledCheck(&r.cfg, r.c) {
 		v := r.c.EBSInfo()
 		r.c.SetEnvs(map[string]string{
